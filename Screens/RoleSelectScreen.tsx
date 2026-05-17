@@ -15,10 +15,11 @@ const roles = [
   { id: 'bookkeeper', label: 'Bookkeeper', icon: '📊' },
 ];
 
-export default function RoleSelectScreen() {
+export default function RoleSelectScreen({ navigation }: any) {
   const handleRoleSelect = (roleId: string) => {
-    // We will navigate to role screens here next
-    console.log('Selected role:', roleId);
+    if (roleId === 'glider_pilot') {
+      navigation.navigate('TowRequest');
+    }
   };
 
   const handleSignOut = async () => {

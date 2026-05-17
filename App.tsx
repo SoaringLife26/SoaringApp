@@ -5,6 +5,7 @@ import { onAuthStateChanged, User } from 'firebase/auth';
 import { auth } from './firebaseConfig';
 import LoginScreen from './Screens/LoginScreen';
 import RoleSelectScreen from './Screens/RoleSelectScreen';
+import TowRequestScreen from './Screens/TowRequestScreen';
 
 const Stack = createStackNavigator();
 
@@ -26,7 +27,10 @@ export default function App() {
     <NavigationContainer>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         {user ? (
-          <Stack.Screen name="RoleSelect" component={RoleSelectScreen} />
+          <>
+            <Stack.Screen name="RoleSelect" component={RoleSelectScreen} />
+            <Stack.Screen name="TowRequest" component={TowRequestScreen} />
+          </>
         ) : (
           <Stack.Screen name="Login" component={LoginScreen} />
         )}
