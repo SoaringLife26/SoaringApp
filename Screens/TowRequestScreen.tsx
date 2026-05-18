@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -8,7 +8,7 @@ import {
   ScrollView,
   Alert,
 } from 'react-native';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, getDocs, query, where, orderBy } from 'firebase/firestore';
 import { db } from '../firebaseConfig';
 import { useMember } from '../context/MemberContext';
 import { Picker } from '@react-native-picker/picker';
@@ -22,22 +22,11 @@ const TOW_TYPES = [
   { id: 'other',         label: 'Other' },
 ];
 
-// Temporary hardcoded list — will be replaced with Firestore query next
-const CLUB_GLIDERS = [
-  { id: 'black21',   label: 'Black 21',   nNumber: 'N000AA', isTwoSeat: true },
-  { id: 'green21',   label: 'Green 21',   nNumber: 'N000BB', isTwoSeat: true },
-  { id: 'red21',     label: 'Red 21',     nNumber: 'N000CC', isTwoSeat: true },
-  { id: 'pw5',       label: 'PW5',        nNumber: 'N000DD', isTwoSeat: false },
-  { id: 'pw7',       label: 'PW7',        nNumber: 'N000EE', isTwoSeat: false },
-  { id: 'pw14',      label: 'PW14',       nNumber: 'N000FF', isTwoSeat: false },
-  { id: 'tx',        label: 'TX',         nNumber: 'N000GG', isTwoSeat: true },
-  { id: 'orange26',  label: 'Orange 26',  nNumber: 'N000HH', isTwoSeat: false },
-  { id: 'white26',   label: 'White 26',   nNumber: 'N000II', isTwoSeat: false },
-];
 
 export default function TowRequestScreen({ navigation }: any) {
   const { member } = useMember();
-
+  const [clubGliders, setClubGliders] = useState<any[]>([]);
+  const [glidersLoading, setGlidersLoading] = useState(true);
   const [gliderPath, setGliderPath] = useState<'club' | 'private' | 'other'>('club');
   const [selectedGlider, setSelectedGlider] = useState<any>(null);
   const [otherGliderDesc, setOtherGliderDesc] = useState('');
@@ -48,6 +37,34 @@ export default function TowRequestScreen({ navigation }: any) {
   const [isDual, setIsDual] = useState(false);
   const [passengerName, setPassengerName] = useState('');
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    const fetchGliders = async () => {
+      try {
+        const q = query(
+          collection(db, 'gliders'),
+          where('isActive', '==', true),
+          where('isClubGlider', '==', true)
+        );
+        const snapshot = await getDocs(q);
+        const gliderList = snapshot.docs.map(doc => ({
+          id: doc.id,
+          label: doc.data().displayName,
+          nNumber: doc.data().nNumber,
+          isTwoSeat: doc.data().isTwoSeat,
+          sortOrder: doc.data().sortOrder || 0,
+        }));
+        gliderList.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
+        setClubGliders(gliderList);
+      } catch (error) {
+        console.error('Error fetching gliders:', error);
+      } finally {
+        setGlidersLoading(false);
+      }
+    };
+
+    fetchGliders();
+  }, []);
 
   const selectedGliderIsTwoSeat =
     gliderPath === 'club' && selectedGlider?.isTwoSeat;
@@ -200,12 +217,12 @@ export default function TowRequestScreen({ navigation }: any) {
           <Picker
             selectedValue={selectedGlider?.id || ''}
             onValueChange={(itemValue) => {
-              const glider = CLUB_GLIDERS.find(g => g.id === itemValue);
+              const glider = clubGliders.find(g => g.id === itemValue);
               setSelectedGlider(glider || null);
             }}
             style={styles.picker}>
-            <Picker.Item label="— Select a glider —" value="" />
-            {CLUB_GLIDERS.map((glider) => (
+            <Picker.Item label={glidersLoading ? "Loading..." : "— Select a glider —"} value="" />
+            {clubGliders.map((glider) => (
               <Picker.Item
                 key={glider.id}
                 label={glider.label}
