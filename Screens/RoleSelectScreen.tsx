@@ -1,21 +1,72 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
   TouchableOpacity,
   StyleSheet,
+  ActivityIndicator,
 } from 'react-native';
 import { signOut } from 'firebase/auth';
-import { auth } from '../firebaseConfig';
+import { doc, getDoc } from 'firebase/firestore';
+import { auth, db } from '../firebaseConfig';
 
-const roles = [
+type Role = {
+  id: string;
+  label: string;
+  icon: string;
+};
+
+const ALL_ROLES: Role[] = [
   { id: 'glider_pilot', label: 'Glider Pilot', icon: '🛩️' },
-  { id: 'tow_pilot', label: 'Tow Pilot', icon: '✈️' },
-  { id: 'line_chief', label: 'Line Chief', icon: '📋' },
-  { id: 'bookkeeper', label: 'Bookkeeper', icon: '📊' },
+  { id: 'tow_pilot',    label: 'Tow Pilot',    icon: '✈️' },
+  { id: 'line_chief',   label: 'Line Chief',   icon: '📋' },
+  { id: 'demo_ride',    label: 'Demo Ride',    icon: '🎟️' },
 ];
 
 export default function RoleSelectScreen({ navigation }: any) {
+  const [availableRoles, setAvailableRoles] = useState<Role[]>([]);
+  const [memberName, setMemberName] = useState('');
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchMember = async () => {
+      try {
+        const uid = auth.currentUser?.uid || '';
+
+        const memberDoc = await getDoc(doc(db, 'members', uid));
+
+        if (!memberDoc.exists()) {
+          setAvailableRoles([ALL_ROLES[0], ALL_ROLES[2]]);
+          setLoading(false);
+          return;
+        }
+
+        const data = memberDoc.data();
+        setMemberName(data.displayName || '');
+
+        const roles: Role[] = [ALL_ROLES[0]];
+
+        if (data.isTowPilotQualified === true && data.isTowPilotCurrent === true) {
+          roles.push(ALL_ROLES[1]);
+        }
+
+        roles.push(ALL_ROLES[2]);
+
+        if (data.isRideGiverAuthorized === true) {
+          roles.push(ALL_ROLES[3]);
+        }
+
+        setAvailableRoles(roles);
+      } catch (error) {
+        setAvailableRoles([ALL_ROLES[0], ALL_ROLES[2]]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchMember();
+  }, []);
+
   const handleRoleSelect = (roleId: string) => {
     if (roleId === 'glider_pilot') {
       navigation.navigate('TowRequest');
@@ -26,12 +77,24 @@ export default function RoleSelectScreen({ navigation }: any) {
     await signOut(auth);
   };
 
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#1A4E8C" />
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <Text style={styles.title}>TSA Flight Line</Text>
+      {memberName ? (
+        <Text style={styles.welcome}>Welcome, {memberName}</Text>
+      ) : null}
       <Text style={styles.subtitle}>Select your role for today</Text>
 
-      {roles.map((role) => (
+
+      {availableRoles.map((role) => (
         <TouchableOpacity
           key={role.id}
           style={styles.roleButton}
@@ -49,6 +112,12 @@ export default function RoleSelectScreen({ navigation }: any) {
 }
 
 const styles = StyleSheet.create({
+  loadingContainer: {
+    flex: 1,
+    backgroundColor: '#f0f4f8',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   container: {
     flex: 1,
     backgroundColor: '#f0f4f8',
@@ -60,12 +129,17 @@ const styles = StyleSheet.create({
     fontSize: 32,
     fontWeight: 'bold',
     color: '#1A4E8C',
-    marginBottom: 8,
+    marginBottom: 4,
+  },
+  welcome: {
+    fontSize: 16,
+    color: '#1A4E8C',
+    marginBottom: 4,
   },
   subtitle: {
     fontSize: 16,
     color: '#666',
-    marginBottom: 40,
+    marginBottom: 16,
   },
   roleButton: {
     width: '100%',
