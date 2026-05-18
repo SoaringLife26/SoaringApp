@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import {
   View,
   Text,
@@ -7,8 +7,8 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { signOut } from 'firebase/auth';
-import { doc, getDoc } from 'firebase/firestore';
-import { auth, db } from '../firebaseConfig';
+import { auth } from '../firebaseConfig';
+import { useMember } from '../context/MemberContext';
 
 type Role = {
   id: string;
@@ -17,55 +17,14 @@ type Role = {
 };
 
 const ALL_ROLES: Role[] = [
-  { id: 'glider_pilot', label: 'Glider Pilot', icon: '🛩️' },
-  { id: 'tow_pilot',    label: 'Tow Pilot',    icon: '✈️' },
-  { id: 'line_chief',   label: 'Line Chief',   icon: '📋' },
-  { id: 'demo_ride',    label: 'Demo Ride',    icon: '🎟️' },
+  { id: 'glider_pilot', label: 'Glider Pilot',  icon: '🛩️' },
+  { id: 'tow_pilot',    label: 'Tow Pilot',     icon: '✈️' },
+  { id: 'line_chief',   label: 'Line Chief',    icon: '📋' },
+  { id: 'demo_ride',    label: 'Demo Ride',     icon: '🎟️' },
 ];
 
 export default function RoleSelectScreen({ navigation }: any) {
-  const [availableRoles, setAvailableRoles] = useState<Role[]>([]);
-  const [memberName, setMemberName] = useState('');
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const fetchMember = async () => {
-      try {
-        const uid = auth.currentUser?.uid || '';
-
-        const memberDoc = await getDoc(doc(db, 'members', uid));
-
-        if (!memberDoc.exists()) {
-          setAvailableRoles([ALL_ROLES[0], ALL_ROLES[2]]);
-          setLoading(false);
-          return;
-        }
-
-        const data = memberDoc.data();
-        setMemberName(data.displayName || '');
-
-        const roles: Role[] = [ALL_ROLES[0]];
-
-        if (data.isTowPilotQualified === true && data.isTowPilotCurrent === true) {
-          roles.push(ALL_ROLES[1]);
-        }
-
-        roles.push(ALL_ROLES[2]);
-
-        if (data.isRideGiverAuthorized === true) {
-          roles.push(ALL_ROLES[3]);
-        }
-
-        setAvailableRoles(roles);
-      } catch (error) {
-        setAvailableRoles([ALL_ROLES[0], ALL_ROLES[2]]);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchMember();
-  }, []);
+  const { member, loading } = useMember();
 
   const handleRoleSelect = (roleId: string) => {
     if (roleId === 'glider_pilot') {
@@ -85,14 +44,25 @@ export default function RoleSelectScreen({ navigation }: any) {
     );
   }
 
+  const availableRoles: Role[] = [ALL_ROLES[0]];
+
+  if (member?.isTowPilotQualified && member?.isTowPilotCurrent) {
+    availableRoles.push(ALL_ROLES[1]);
+  }
+
+  availableRoles.push(ALL_ROLES[2]);
+
+  if (member?.isRideGiverAuthorized) {
+    availableRoles.push(ALL_ROLES[3]);
+  }
+
   return (
     <View style={styles.container}>
       <Text style={styles.title}>TSA Flight Line</Text>
-      {memberName ? (
-        <Text style={styles.welcome}>Welcome, {memberName}</Text>
+      {member?.displayName ? (
+        <Text style={styles.welcome}>Welcome, {member.displayName}</Text>
       ) : null}
       <Text style={styles.subtitle}>Select your role for today</Text>
-
 
       {availableRoles.map((role) => (
         <TouchableOpacity
@@ -139,7 +109,7 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: 16,
     color: '#666',
-    marginBottom: 16,
+    marginBottom: 40,
   },
   roleButton: {
     width: '100%',

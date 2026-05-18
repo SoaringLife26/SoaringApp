@@ -1,27 +1,24 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
-import { onAuthStateChanged, User } from 'firebase/auth';
-import { auth } from './firebaseConfig';
+import { MemberProvider, useMember } from './context/MemberContext';
+import { ActivityIndicator, View } from 'react-native';
 import LoginScreen from './Screens/LoginScreen';
 import RoleSelectScreen from './Screens/RoleSelectScreen';
 import TowRequestScreen from './Screens/TowRequestScreen';
 
 const Stack = createStackNavigator();
 
-export default function App() {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+function AppNavigator() {
+  const { user, member, loading } = useMember();
 
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
-      setUser(firebaseUser);
-      setLoading(false);
-    });
-    return unsubscribe;
-  }, []);
-
-  if (loading) return null;
+  if (loading) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator size="large" color="#1A4E8C" />
+      </View>
+    );
+  }
 
   return (
     <NavigationContainer>
@@ -36,5 +33,13 @@ export default function App() {
         )}
       </Stack.Navigator>
     </NavigationContainer>
+  );
+}
+
+export default function App() {
+  return (
+    <MemberProvider>
+      <AppNavigator />
+    </MemberProvider>
   );
 }
