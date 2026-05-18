@@ -9,34 +9,56 @@ import {
   Alert,
 } from 'react-native';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
-import { db, auth } from '../firebaseConfig';
+import { db } from '../firebaseConfig';
+import { useMember } from '../context/MemberContext';
+import { Picker } from '@react-native-picker/picker';
 
 const TOW_TYPES = [
-  { id: 'normal', label: 'Normal' },
-  { id: 'pattern', label: 'Pattern' },
-  { id: 'box_wake', label: 'Box the Wake' },
-  { id: 'slack_line', label: 'Slack Line' },
+  { id: 'normal',        label: 'Normal' },
+  { id: 'pattern',       label: 'Pattern' },
+  { id: 'box_wake',      label: 'Box the Wake' },
+  { id: 'slack_line',    label: 'Slack Line' },
   { id: 'tow_rope_fail', label: 'Tow Rope Fail' },
-  { id: 'other', label: 'Other' },
+  { id: 'other',         label: 'Other' },
 ];
 
+// Temporary hardcoded list — will be replaced with Firestore query next
 const CLUB_GLIDERS = [
-  { id: 'g1', label: 'N731SG — Schweizer 1-26' },
-  { id: 'g2', label: 'N44SP — ASK-21' },
+  { id: 'black21',   label: 'Black 21',   nNumber: 'N000AA', isTwoSeat: true },
+  { id: 'green21',   label: 'Green 21',   nNumber: 'N000BB', isTwoSeat: true },
+  { id: 'red21',     label: 'Red 21',     nNumber: 'N000CC', isTwoSeat: true },
+  { id: 'pw5',       label: 'PW5',        nNumber: 'N000DD', isTwoSeat: false },
+  { id: 'pw7',       label: 'PW7',        nNumber: 'N000EE', isTwoSeat: false },
+  { id: 'pw14',      label: 'PW14',       nNumber: 'N000FF', isTwoSeat: false },
+  { id: 'tx',        label: 'TX',         nNumber: 'N000GG', isTwoSeat: true },
+  { id: 'orange26',  label: 'Orange 26',  nNumber: 'N000HH', isTwoSeat: false },
+  { id: 'white26',   label: 'White 26',   nNumber: 'N000II', isTwoSeat: false },
 ];
 
-export default function TowRequestScreen() {
-  const [selectedGlider, setSelectedGlider] = useState('');
+export default function TowRequestScreen({ navigation }: any) {
+  const { member } = useMember();
+
+  const [gliderPath, setGliderPath] = useState<'club' | 'private' | 'other'>('club');
+  const [selectedGlider, setSelectedGlider] = useState<any>(null);
+  const [otherGliderDesc, setOtherGliderDesc] = useState('');
   const [altitude, setAltitude] = useState('');
   const [selectedTowType, setSelectedTowType] = useState('');
+  const [towTypeNote, setTowTypeNote] = useState('');
   const [studentFlight, setStudentFlight] = useState(false);
   const [isDual, setIsDual] = useState(false);
-  const [towTypeNote, setTowTypeNote] = useState('');
+  const [passengerName, setPassengerName] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
+  const selectedGliderIsTwoSeat =
+    gliderPath === 'club' && selectedGlider?.isTwoSeat;
+
   const handleSubmit = async () => {
-    if (!selectedGlider) {
+    if (gliderPath === 'club' && !selectedGlider) {
       Alert.alert('Required', 'Please select a glider');
+      return;
+    }
+    if (gliderPath === 'other' && !otherGliderDesc) {
+      Alert.alert('Required', 'Please describe the glider');
       return;
     }
     if (!altitude) {
@@ -47,31 +69,81 @@ export default function TowRequestScreen() {
       Alert.alert('Required', 'Please select a tow type');
       return;
     }
+    if (isDual && !studentFlight && !passengerName) {
+      Alert.alert('Required', 'Please enter passenger name');
+      return;
+    }
 
     setSubmitting(true);
     try {
-      const pilot = auth.currentUser;
+      // Determine glider details
+      let gliderOwnership = 'club';
+      let gliderDisplayName = selectedGlider?.label || '';
+      let gliderNNumber = selectedGlider?.nNumber || '';
+
+      if (gliderPath === 'private') {
+        gliderOwnership = 'private';
+        gliderDisplayName = member?.privateGlider?.displayName || '';
+        gliderNNumber = member?.privateGlider?.nNumber || '';
+      } else if (gliderPath === 'other') {
+        gliderOwnership = 'private_other';
+        gliderDisplayName = otherGliderDesc;
+        gliderNNumber = '';
+      }
+
+      // Build display shorthand
+      const lastName = member?.displayName?.split(' ').pop() || '';
+      const displayShorthand = gliderDisplayName + ' / ' + lastName;
+
       await addDoc(collection(db, 'flights'), {
         status: 'pending',
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
-        pilotId: pilot?.uid,
-        pilotEmail: pilot?.email,
-        gliderLabel: selectedGlider,
+        queuePosition: Date.now(),
+
+        // Pilot info from member context
+        pilotId: member?.uid || '',
+        pilotName: member?.displayName || '',
+        pilotLastName: lastName,
+        memberNumber: member?.memberNumber || '',
+
+        // Glider info
+        gliderOwnership,
+        gliderDisplayName,
+        gliderNNumber,
+        displayShorthand,
+
+        // Tow details
         requestedAltitudeFt: parseInt(altitude),
         towType: selectedTowType,
         towTypeNote: selectedTowType === 'other' ? towTypeNote : null,
+
+        // Flight type
         studentFlight,
         isDual,
-        queuePosition: Date.now(),
+        hasPassenger: isDual && !studentFlight,
+        passenger: isDual && !studentFlight
+          ? { name: passengerName }
+          : null,
+
+        // Flags
+        patternTowConfirmed: false,
+        reconciled: false,
+        needsReconciliation: false,
+        missingFlightTime: false,
+        postponeCount: 0,
+        lineChiefPresent: false,
       });
+
       Alert.alert('Submitted!', 'Your tow request is in the queue.');
-      setSelectedGlider('');
+      setSelectedGlider(null);
       setAltitude('');
       setSelectedTowType('');
+      setTowTypeNote('');
       setStudentFlight(false);
       setIsDual(false);
-      setTowTypeNote('');
+      setPassengerName('');
+      setOtherGliderDesc('');
     } catch (error) {
       Alert.alert('Error', 'Could not submit tow request. Try again.');
     } finally {
@@ -81,26 +153,78 @@ export default function TowRequestScreen() {
 
   return (
     <ScrollView style={styles.container}>
-      <Text style={styles.title}>Tow Request</Text>
+      <TouchableOpacity
+        style={styles.backButton}
+        onPress={() => navigation.goBack()}>
+        <Text style={styles.backText}>← Back</Text>
+      </TouchableOpacity>
 
-      {/* Glider Selection */}
-      <Text style={styles.label}>Select Glider</Text>
-      {CLUB_GLIDERS.map((glider) => (
-        <TouchableOpacity
-          key={glider.id}
-          style={[
-            styles.optionButton,
-            selectedGlider === glider.label && styles.optionSelected,
-          ]}
-          onPress={() => setSelectedGlider(glider.label)}>
-          <Text style={[
-            styles.optionText,
-            selectedGlider === glider.label && styles.optionTextSelected,
-          ]}>
-            {glider.label}
-          </Text>
-        </TouchableOpacity>
-      ))}
+      <Text style={styles.title}>Tow Request</Text>
+      <Text style={styles.pilotName}>{member?.displayName}</Text>
+      <Text style={styles.memberNumber}>Member #{member?.memberNumber}</Text>
+
+      {/* Glider Path Selection */}
+      <Text style={styles.label}>Glider</Text>
+
+      {member?.privateGlider && (
+        <>
+          <TouchableOpacity
+            style={[styles.optionButton, gliderPath === 'private' && styles.optionSelected]}
+            onPress={() => { setGliderPath('private'); setSelectedGlider(null); }}>
+            <Text style={[styles.optionText, gliderPath === 'private' && styles.optionTextSelected]}>
+              My Glider — {member.privateGlider.displayName}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.optionButton, gliderPath === 'club' && styles.optionSelected]}
+            onPress={() => { setGliderPath('club'); setSelectedGlider(null); }}>
+            <Text style={[styles.optionText, gliderPath === 'club' && styles.optionTextSelected]}>
+              Fly a club glider instead
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.optionButton, gliderPath === 'other' && styles.optionSelected]}
+            onPress={() => { setGliderPath('other'); setSelectedGlider(null); }}>
+            <Text style={[styles.optionText, gliderPath === 'other' && styles.optionTextSelected]}>
+              Flying another member's glider
+            </Text>
+          </TouchableOpacity>
+        </>
+      )}
+
+      {/* Club Glider Picker */}
+      {gliderPath === 'club' && (
+        <View style={styles.pickerContainer}>
+          <Picker
+            selectedValue={selectedGlider?.id || ''}
+            onValueChange={(itemValue) => {
+              const glider = CLUB_GLIDERS.find(g => g.id === itemValue);
+              setSelectedGlider(glider || null);
+            }}
+            style={styles.picker}>
+            <Picker.Item label="— Select a glider —" value="" />
+            {CLUB_GLIDERS.map((glider) => (
+              <Picker.Item
+                key={glider.id}
+                label={glider.label}
+                value={glider.id}
+              />
+            ))}
+          </Picker>
+        </View>
+      )}
+
+      {/* Other glider free text */}
+      {gliderPath === 'other' && (
+        <TextInput
+          style={styles.input}
+          placeholder="Contest number or description (e.g. 42 or blue Discus)"
+          value={otherGliderDesc}
+          onChangeText={setOtherGliderDesc}
+        />
+      )}
 
       {/* Altitude */}
       <Text style={styles.label}>Tow Altitude (ft AGL)</Text>
@@ -112,26 +236,24 @@ export default function TowRequestScreen() {
         keyboardType="numeric"
       />
 
-      {/* Tow Type */}
+      {/* Tow Type Picker */}
       <Text style={styles.label}>Tow Type</Text>
-      {TOW_TYPES.map((type) => (
-        <TouchableOpacity
-          key={type.id}
-          style={[
-            styles.optionButton,
-            selectedTowType === type.id && styles.optionSelected,
-          ]}
-          onPress={() => setSelectedTowType(type.id)}>
-          <Text style={[
-            styles.optionText,
-            selectedTowType === type.id && styles.optionTextSelected,
-          ]}>
-            {type.label}
-          </Text>
-        </TouchableOpacity>
-      ))}
+      <View style={styles.pickerContainer}>
+        <Picker
+          selectedValue={selectedTowType}
+          onValueChange={(itemValue) => setSelectedTowType(itemValue)}
+          style={styles.picker}>
+          <Picker.Item label="— Select tow type —" value="" />
+          {TOW_TYPES.map((type) => (
+            <Picker.Item
+              key={type.id}
+              label={type.label}
+              value={type.id}
+            />
+          ))}
+        </Picker>
+      </View>
 
-      {/* Other note */}
       {selectedTowType === 'other' && (
         <TextInput
           style={styles.input}
@@ -144,24 +266,46 @@ export default function TowRequestScreen() {
       {/* Student Flight Toggle */}
       <TouchableOpacity
         style={styles.toggleRow}
-        onPress={() => setStudentFlight(!studentFlight)}>
+        onPress={() => {
+          setStudentFlight(!studentFlight);
+          setIsDual(false);
+          setPassengerName('');
+        }}>
         <Text style={styles.toggleLabel}>Student Flight</Text>
         <View style={[styles.toggle, studentFlight && styles.toggleOn]}>
           <Text style={styles.toggleText}>{studentFlight ? 'YES' : 'NO'}</Text>
         </View>
       </TouchableOpacity>
 
-      {/* Dual Toggle */}
-      <TouchableOpacity
-        style={styles.toggleRow}
-        onPress={() => setIsDual(!isDual)}>
-        <Text style={styles.toggleLabel}>
-          {studentFlight ? 'Dual (with Instructor)' : 'Dual (with Passenger)'}
-        </Text>
-        <View style={[styles.toggle, isDual && styles.toggleOn]}>
-          <Text style={styles.toggleText}>{isDual ? 'YES' : 'NO'}</Text>
-        </View>
-      </TouchableOpacity>
+      {/* Dual Toggle — only show for two-seat gliders or student flights */}
+      {(studentFlight || selectedGliderIsTwoSeat) && (
+        <TouchableOpacity
+          style={styles.toggleRow}
+          onPress={() => {
+            setIsDual(!isDual);
+            setPassengerName('');
+          }}>
+          <Text style={styles.toggleLabel}>
+            {studentFlight ? 'Dual (with Instructor)' : 'Dual (with Passenger)'}
+          </Text>
+          <View style={[styles.toggle, isDual && styles.toggleOn]}>
+            <Text style={styles.toggleText}>{isDual ? 'YES' : 'NO'}</Text>
+          </View>
+        </TouchableOpacity>
+      )}
+
+      {/* Passenger name — non-student dual only */}
+      {isDual && !studentFlight && (
+        <>
+          <Text style={styles.label}>Passenger Name</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Full name"
+            value={passengerName}
+            onChangeText={setPassengerName}
+          />
+        </>
+      )}
 
       {/* Submit */}
       <TouchableOpacity
@@ -173,7 +317,7 @@ export default function TowRequestScreen() {
         </Text>
       </TouchableOpacity>
 
-      <View style={{ height: 40 }} />
+      <View style={{ height: 60 }} />
     </ScrollView>
   );
 }
@@ -184,12 +328,30 @@ const styles = StyleSheet.create({
     backgroundColor: '#f0f4f8',
     padding: 24,
   },
+  backButton: {
+    marginTop: 60,
+    marginBottom: 8,
+  },
+  backText: {
+    fontSize: 16,
+    color: '#1A4E8C',
+  },
   title: {
     fontSize: 28,
     fontWeight: 'bold',
     color: '#1A4E8C',
+    marginBottom: 4,
+  },
+  pilotName: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 2,
+  },
+  memberNumber: {
+    fontSize: 14,
+    color: '#888',
     marginBottom: 24,
-    marginTop: 60,
   },
   label: {
     fontSize: 16,
@@ -241,6 +403,7 @@ const styles = StyleSheet.create({
   toggleLabel: {
     fontSize: 16,
     color: '#333',
+    flex: 1,
   },
   toggle: {
     backgroundColor: '#ddd',
