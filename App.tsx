@@ -7,6 +7,7 @@ import LoginScreen from './Screens/LoginScreen';
 import RoleSelectScreen from './Screens/RoleSelectScreen';
 import TowRequestScreen from './Screens/TowRequestScreen';
 import TowPilotScreen from './Screens/TowPilotScreen';
+import LineChiefScreen from './Screens/LineChiefScreen';
 
 const Stack = createStackNavigator();
 
@@ -29,6 +30,7 @@ function AppNavigator() {
             <Stack.Screen name="RoleSelect" component={RoleSelectScreen} />
             <Stack.Screen name="TowRequest" component={TowRequestScreen} />
             <Stack.Screen name="TowPilot" component={TowPilotScreen} />
+            <Stack.Screen name="LineChief" component={LineChiefScreen} />
           </>
         ) : (
           <Stack.Screen name="Login" component={LoginScreen} />

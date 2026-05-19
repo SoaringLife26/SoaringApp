@@ -33,6 +33,9 @@ export default function RoleSelectScreen({ navigation }: any) {
     if (roleId === 'tow_pilot') {
       navigation.navigate('TowPilot');
     }
+    if (roleId === 'line_chief') {
+      navigation.navigate('LineChief');
+    }
   };
 
   const handleSignOut = async () => {

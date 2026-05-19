@@ -58,12 +58,12 @@ export default function TowPilotScreen({ navigation }: any) {
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      if (!snapshot.empty) {
-        const flight = {
-          id: snapshot.docs[0].id,
-          ...snapshot.docs[0].data(),
-        };
-        setCompletedTow(flight);
+      const landedFlights = snapshot.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .filter((f: any) => !f.releaseAltitudeFt && !f.patternTowConfirmed);
+
+      if (landedFlights.length > 0) {
+        setCompletedTow(landedFlights[0]);
       } else {
         setCompletedTow(null);
       }
@@ -71,6 +71,7 @@ export default function TowPilotScreen({ navigation }: any) {
 
     return unsubscribe;
   }, []);
+
 
   const handleReleaseAltitude = async () => {
     if (!releaseAltitude) {
@@ -85,8 +86,10 @@ export default function TowPilotScreen({ navigation }: any) {
         releaseAltitudeFt: parseInt(releaseAltitude),
         towPilotUID: member?.uid,
         towPilotName: member?.displayName,
+        status: 'complete',
         updatedAt: serverTimestamp(),
       });
+      setCompletedTow(null);
       setReleaseAltitude('');
       Alert.alert('Logged', 'Release altitude recorded.');
     } catch (error) {
@@ -110,6 +113,19 @@ export default function TowPilotScreen({ navigation }: any) {
         reconciliationMethod: 'pattern_tow_fixed',
         updatedAt: serverTimestamp(),
       });
+
+await updateDoc(doc(db, 'flights', completedTow.id), {
+        patternTowConfirmed: true,
+        patternTowConfirmedAt: serverTimestamp(),
+        towPilotUID: member?.uid,
+        towPilotName: member?.displayName,
+        billedFlightTime: 0.1,
+        reconciled: true,
+        reconciliationMethod: 'pattern_tow_fixed',
+        status: 'complete',
+        updatedAt: serverTimestamp(),
+      });
+
       Alert.alert('Confirmed', 'Pattern tow recorded. Billed at 0.1 hr.');
     } catch (error) {
       Alert.alert('Error', 'Could not confirm pattern tow.');
