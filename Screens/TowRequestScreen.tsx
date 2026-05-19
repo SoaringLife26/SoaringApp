@@ -244,31 +244,42 @@ export default function TowRequestScreen({ navigation }: any) {
       )}
 
       {/* Altitude */}
-      <Text style={styles.label}>Tow Altitude (ft AGL)</Text>
+      <Text style={[styles.label, selectedTowType === 'pattern' && styles.labelDisabled]}>
+        Tow Altitude (ft AGL)
+      </Text>
       <TextInput
-        style={styles.input}
-        placeholder="e.g. 2500"
-        value={altitude}
+        style={[styles.input, selectedTowType === 'pattern' && styles.inputDisabled]}
+        placeholder={selectedTowType === 'pattern' ? 'N/A — Pattern Tow' : 'e.g. 2500'}
+        value={selectedTowType === 'pattern' ? '' : altitude}
         onChangeText={setAltitude}
         keyboardType="numeric"
+        editable={selectedTowType !== 'pattern'}
       />
 
-      {/* Tow Type Picker */}
+      {/* Tow Type Buttons */}
       <Text style={styles.label}>Tow Type</Text>
-      <View style={styles.pickerContainer}>
-        <Picker
-          selectedValue={selectedTowType}
-          onValueChange={(itemValue) => setSelectedTowType(itemValue)}
-          style={styles.picker}>
-          <Picker.Item label="— Select tow type —" value="" />
-          {TOW_TYPES.map((type) => (
-            <Picker.Item
-              key={type.id}
-              label={type.label}
-              value={type.id}
-            />
-          ))}
-        </Picker>
+      <View style={styles.towTypeGrid}>
+        {TOW_TYPES.map((type) => (
+          <TouchableOpacity
+            key={type.id}
+            style={[
+              styles.towTypeButton,
+              selectedTowType === type.id && styles.towTypeSelected,
+            ]}
+            onPress={() => {
+              setSelectedTowType(type.id);
+              if (type.id === 'pattern') {
+                setAltitude('');
+              }
+            }}>
+            <Text style={[
+              styles.towTypeText,
+              selectedTowType === type.id && styles.towTypeTextSelected,
+            ]}>
+              {type.label}
+            </Text>
+          </TouchableOpacity>
+        ))}
       </View>
 
       {selectedTowType === 'other' && (
@@ -447,5 +458,46 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 18,
     fontWeight: 'bold',
+  },
+
+  submitText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  towTypeGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 8,
+  },
+  towTypeButton: {
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    marginBottom: 4,
+  },
+  towTypeSelected: {
+    backgroundColor: '#1A4E8C',
+    borderColor: '#1A4E8C',
+  },
+  towTypeText: {
+    fontSize: 14,
+    color: '#333',
+  },
+  towTypeTextSelected: {
+    color: '#fff',
+    fontWeight: '600',
+  },
+  labelDisabled: {
+    color: '#bbb',
+  },
+  inputDisabled: {
+    backgroundColor: '#f0f0f0',
+    borderColor: '#ddd',
+    color: '#bbb',
   },
 });

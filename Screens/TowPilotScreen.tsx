@@ -50,12 +50,11 @@ export default function TowPilotScreen({ navigation }: any) {
     return unsubscribe;
   }, []);
 
-  // Real-time listener for recently landed flights needing release altitude
+ // Real-time listener for recently landed flights needing release altitude
   useEffect(() => {
     const q = query(
       collection(db, 'flights'),
-      where('status', '==', 'landed'),
-      where('releaseAltitudeFt', '==', null)
+      where('status', '==', 'landed')
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -119,6 +118,17 @@ export default function TowPilotScreen({ navigation }: any) {
     }
   };
 
+  const handleTowComplete = async (flight: any) => {
+    try {
+      await updateDoc(doc(db, 'flights', flight.id), {
+        status: 'landed',
+        updatedAt: serverTimestamp(),
+      });
+    } catch (error) {
+      Alert.alert('Error', 'Could not update flight status.');
+    }
+  };
+
   const getTowTypeBadge = (towType: string) => {
     const badges: Record<string, string> = {
       normal:        'Normal',
@@ -146,7 +156,7 @@ export default function TowPilotScreen({ navigation }: any) {
       {completedTow && (
         <View style={styles.completedCard}>
           <Text style={styles.completedTitle}>
-            ✅ Tow Complete — Enter Details
+            ✅ Tow Complete — Enter Altidude
           </Text>
           <Text style={styles.completedGlider}>
             {completedTow.displayShorthand}
@@ -200,7 +210,7 @@ export default function TowPilotScreen({ navigation }: any) {
         </View>
       ) : (
         pendingFlights.map((flight) => (
-          <View key={flight.id} style={styles.briefCard}>
+<View key={flight.id} style={styles.briefCard}>
             <Text style={styles.briefGlider}>
               {flight.displayShorthand}
             </Text>
@@ -230,6 +240,11 @@ export default function TowPilotScreen({ navigation }: any) {
                 </View>
               )}
             </View>
+            <TouchableOpacity
+              style={styles.towCompleteButton}
+              onPress={() => handleTowComplete(flight)}>
+              <Text style={styles.towCompleteText}>Tow Complete</Text>
+            </TouchableOpacity>
           </View>
         ))
       )}
@@ -392,4 +407,18 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: 'bold',
   },
+
+  towCompleteButton: {
+    backgroundColor: '#2E7D32',
+    padding: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginTop: 12,
+  },
+  towCompleteText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: 'bold',
+  },
+
 });
