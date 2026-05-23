@@ -13,13 +13,16 @@ import { db } from '../firebaseConfig';
 import { useMember } from '../context/MemberContext';
 import { Picker } from '@react-native-picker/picker';
 
-const TOW_TYPES = [
+const TOW_CATEGORIES = [
   { id: 'normal',        label: 'Normal' },
   { id: 'pattern',       label: 'Pattern' },
-  { id: 'box_wake',      label: 'Box the Wake' },
-  { id: 'slack_line',    label: 'Slack Line' },
   { id: 'tow_rope_fail', label: 'Tow Rope Fail' },
-  { id: 'other',         label: 'Other' },
+  { id: 'aero_retrieve', label: 'Aero Retrieve' },
+];
+
+const TRAINING_MANEUVERS = [
+  { id: 'box_wake',   label: 'Box the Wake' },
+  { id: 'slack_line', label: 'Slack Line' },
 ];
 
 
@@ -31,7 +34,8 @@ export default function TowRequestScreen({ navigation }: any) {
   const [selectedGlider, setSelectedGlider] = useState<any>(null);
   const [otherGliderDesc, setOtherGliderDesc] = useState('');
   const [altitude, setAltitude] = useState('');
-  const [selectedTowType, setSelectedTowType] = useState('');
+  const [selectedTowType, setSelectedTowType] = useState('normal');
+  const [trainingManeuvers, setTrainingManeuvers] = useState<string[]>([]);
   const [towTypeNote, setTowTypeNote] = useState('');
   const [studentFlight, setStudentFlight] = useState(false);
   const [isDual, setIsDual] = useState(false);
@@ -86,6 +90,10 @@ export default function TowRequestScreen({ navigation }: any) {
       Alert.alert('Required', 'Please select a tow type');
       return;
     }
+    if (selectedTowType === 'aero_retrieve') {
+      Alert.alert('Aero Retrieve', 'Aero retrieve tickets are created by the tow pilot. Please contact the tow pilot.');
+      return;
+    }
     if (isDual && !studentFlight && !passengerName) {
       Alert.alert('Required', 'Please enter passenger name');
       return;
@@ -133,7 +141,8 @@ export default function TowRequestScreen({ navigation }: any) {
         // Tow details
         requestedAltitudeFt: parseInt(altitude),
         towType: selectedTowType,
-        towTypeNote: selectedTowType === 'other' ? towTypeNote : null,
+        towTypeNote: towTypeNote || null,
+        trainingManeuvers: selectedTowType === 'normal' ? trainingManeuvers : [],
 
         // Flight type
         studentFlight,
@@ -159,7 +168,8 @@ export default function TowRequestScreen({ navigation }: any) {
       );
       setSelectedGlider(null);
       setAltitude('');
-      setSelectedTowType('');
+      setSelectedTowType('normal');
+      setTrainingManeuvers([]);
       setTowTypeNote('');
       setStudentFlight(false);
       setIsDual(false);
@@ -248,22 +258,32 @@ export default function TowRequestScreen({ navigation }: any) {
       )}
 
       {/* Altitude */}
-      <Text style={[styles.label, selectedTowType === 'pattern' && styles.labelDisabled]}>
+      <Text style={[
+        styles.label,
+        (selectedTowType === 'pattern' || selectedTowType === 'aero_retrieve') && styles.labelDisabled,
+      ]}>
         Tow Altitude (ft AGL)
       </Text>
       <TextInput
-        style={[styles.input, selectedTowType === 'pattern' && styles.inputDisabled]}
-        placeholder={selectedTowType === 'pattern' ? 'N/A — Pattern Tow' : 'e.g. 2500'}
-        value={selectedTowType === 'pattern' ? '' : altitude}
+        style={[
+          styles.input,
+          (selectedTowType === 'pattern' || selectedTowType === 'aero_retrieve') && styles.inputDisabled,
+        ]}
+        placeholder={
+          selectedTowType === 'pattern' ? 'N/A — Pattern Tow' :
+          selectedTowType === 'aero_retrieve' ? 'N/A — Aero Retrieve' :
+          'e.g. 2500'
+        }
+        value={(selectedTowType === 'pattern' || selectedTowType === 'aero_retrieve') ? '' : altitude}
         onChangeText={setAltitude}
         keyboardType="numeric"
-        editable={selectedTowType !== 'pattern'}
+        editable={selectedTowType !== 'pattern' && selectedTowType !== 'aero_retrieve'}
       />
 
-      {/* Tow Type Buttons */}
+      {/* Tow Category */}
       <Text style={styles.label}>Tow Type</Text>
       <View style={styles.towTypeGrid}>
-        {TOW_TYPES.map((type) => (
+        {TOW_CATEGORIES.map((type) => (
           <TouchableOpacity
             key={type.id}
             style={[
@@ -272,7 +292,8 @@ export default function TowRequestScreen({ navigation }: any) {
             ]}
             onPress={() => {
               setSelectedTowType(type.id);
-              if (type.id === 'pattern') {
+              setTrainingManeuvers([]);
+              if (type.id === 'pattern' || type.id === 'aero_retrieve') {
                 setAltitude('');
               }
             }}>
@@ -285,6 +306,37 @@ export default function TowRequestScreen({ navigation }: any) {
           </TouchableOpacity>
         ))}
       </View>
+
+      {/* Training Maneuvers — Normal only */}
+      {selectedTowType === 'normal' && (
+        <>
+          <Text style={styles.labelOptional}>Training Maneuvers (optional)</Text>
+          <View style={styles.towTypeGrid}>
+            {TRAINING_MANEUVERS.map((maneuver) => (
+              <TouchableOpacity
+                key={maneuver.id}
+                style={[
+                  styles.towTypeButton,
+                  trainingManeuvers.includes(maneuver.id) && styles.towTypeSelected,
+                ]}
+                onPress={() => {
+                  setTrainingManeuvers(prev =>
+                    prev.includes(maneuver.id)
+                      ? prev.filter(m => m !== maneuver.id)
+                      : [...prev, maneuver.id]
+                  );
+                }}>
+                <Text style={[
+                  styles.towTypeText,
+                  trainingManeuvers.includes(maneuver.id) && styles.towTypeTextSelected,
+                ]}>
+                  {maneuver.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </>
+      )}
 
       {selectedTowType === 'other' && (
         <TextInput
@@ -499,6 +551,16 @@ const styles = StyleSheet.create({
   labelDisabled: {
     color: '#bbb',
   },
+
+  labelOptional: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#888',
+    marginBottom: 8,
+    marginTop: 12,
+    fontStyle: 'italic',
+  },
+  
   inputDisabled: {
     backgroundColor: '#f0f0f0',
     borderColor: '#ddd',
