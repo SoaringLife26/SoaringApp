@@ -28,7 +28,7 @@ export default function RoleSelectScreen({ navigation }: any) {
 
   const handleRoleSelect = (roleId: string) => {
     if (roleId === 'glider_pilot') {
-      navigation.navigate('TowRequest');
+      navigation.navigate('MyTicket');
     }
     if (roleId === 'tow_pilot') {
       navigation.navigate('TowPilot');

@@ -152,7 +152,11 @@ export default function TowRequestScreen({ navigation }: any) {
         lineChiefPresent: false,
       });
 
-      Alert.alert('Submitted!', 'Your tow request is in the queue.');
+      Alert.alert(
+        'Submitted!',
+        'Your tow request is in the queue.',
+        [{ text: 'OK', onPress: () => navigation.navigate('MyTicket') }]
+      );
       setSelectedGlider(null);
       setAltitude('');
       setSelectedTowType('');
