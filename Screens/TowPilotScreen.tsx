@@ -241,7 +241,20 @@ await updateDoc(doc(db, 'flights', completedTow.id), {
             <TouchableOpacity
               key={plane.id}
               style={styles.towPlaneGateButton}
-              onPress={() => setSelectedTowPlane(plane)}>
+              onPress={async () => {
+                setSelectedTowPlane(plane);
+                try {
+                  await updateDoc(doc(db, 'globalSettings', 'current'), {
+                    activeTowPlaneId: plane.id,
+                    activeTowPlaneNNumber: plane.nNumber,
+                    activeTowPlaneDisplayName: plane.displayName || plane.nNumber,
+                    activeTowPilotUID: member?.uid,
+                    activeTowPilotName: member?.displayName,
+                  });
+                } catch (error) {
+                  console.error('Could not update active tow plane:', error);
+                }
+              }}>
               <Text style={styles.towPlaneGateName}>
                 {plane.displayName || plane.nNumber}
               </Text>

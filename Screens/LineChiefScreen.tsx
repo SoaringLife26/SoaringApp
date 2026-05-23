@@ -29,6 +29,7 @@ export default function LineChiefScreen({ navigation }: any) {
   const [towPlanes, setTowPlanes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [lineChiefMode, setLineChiefMode] = useState(true);
+  const [activeTowPlaneId, setActiveTowPlaneId] = useState('');
 
   // Fetch tow planes
   useEffect(() => {
@@ -90,6 +91,7 @@ export default function LineChiefScreen({ navigation }: any) {
       (snapshot) => {
         if (snapshot.exists()) {
           setLineChiefMode(snapshot.data().lineChiefMode ?? true);
+          setActiveTowPlaneId(snapshot.data().activeTowPlaneId || '');
         }
       }
     );
@@ -251,6 +253,7 @@ export default function LineChiefScreen({ navigation }: any) {
             key={flight.id}
             flight={flight}
             towPlanes={towPlanes}
+            activeTowPlaneId={activeTowPlaneId}
             onCertify={handleCertify}
             onWheelsUp={handleWheelsUp}
             getTowTypeBadge={getTowTypeBadge}
@@ -263,15 +266,17 @@ export default function LineChiefScreen({ navigation }: any) {
   );
 }
 
-function FlightCard({ flight, towPlanes, onCertify, onWheelsUp, getTowTypeBadge }: any) {
+function FlightCard({ flight, towPlanes, activeTowPlaneId, onCertify, onWheelsUp, getTowTypeBadge }: any) {
   const [selectedTowPlane, setSelectedTowPlane] = useState('');
 
-  // Auto-select if only one tow plane active
+  // Auto-select from active tow pilot session or single plane
   useEffect(() => {
-    if (towPlanes.length === 1) {
+    if (activeTowPlaneId) {
+      setSelectedTowPlane(activeTowPlaneId);
+    } else if (towPlanes.length === 1) {
       setSelectedTowPlane(towPlanes[0].id);
     }
-  }, [towPlanes]);
+  }, [towPlanes, activeTowPlaneId]);
 
   return (
     <View style={styles.flightCard}>
