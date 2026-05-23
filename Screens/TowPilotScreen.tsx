@@ -18,6 +18,7 @@ import {
   updateDoc,
   serverTimestamp,
   orderBy,
+  getDocs,
 } from 'firebase/firestore';
 import { db } from '../firebaseConfig';
 import { useMember } from '../context/MemberContext';
@@ -29,6 +30,9 @@ export default function TowPilotScreen({ navigation }: any) {
   const [releaseAltitude, setReleaseAltitude] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [towPlanes, setTowPlanes] = useState<any[]>([]);
+  const [selectedTowPlane, setSelectedTowPlane] = useState<any>(null);
+  const [towPlanesLoading, setTowPlanesLoading] = useState(true);
 
   // Real-time listener for pending flights
   useEffect(() => {
@@ -69,7 +73,31 @@ export default function TowPilotScreen({ navigation }: any) {
       }
     });
 
+
+    
     return unsubscribe;
+  }, []);
+
+  // Fetch active tow planes for session selection
+  useEffect(() => {
+    const fetchTowPlanes = async () => {
+      try {
+        const snapshot = await getDocs(
+          query(collection(db, 'towPlanes'), where('isActive', '==', true))
+        );
+        const planes = snapshot.docs.map(d => ({
+          id: d.id,
+          ...d.data(),
+        }));
+        console.log('Tow planes found:', planes.length);
+        setTowPlanes(planes);
+      } catch (error) {
+        console.error('Error fetching tow planes:', error);
+      } finally {
+        setTowPlanesLoading(false);
+      }
+    };
+    fetchTowPlanes();
   }, []);
 
 
@@ -157,6 +185,46 @@ await updateDoc(doc(db, 'flights', completedTow.id), {
     return badges[towType] || towType;
   };
 
+  // Tow plane selection gate
+  if (!selectedTowPlane) {
+    return (
+      <ScrollView style={styles.container}>
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => navigation.goBack()}>
+          <Text style={styles.backText}>← Back</Text>
+        </TouchableOpacity>
+
+        <Text style={styles.title}>Tow Pilot</Text>
+        <Text style={styles.pilotName}>{member?.displayName}</Text>
+        <Text style={styles.sectionTitle}>Select Your Tow Plane</Text>
+        <Text style={styles.gateSubtitle}>
+          Choose the aircraft you are flying today
+        </Text>
+
+        {towPlanesLoading ? (
+          <ActivityIndicator size="large" color="#1A4E8C" style={{ marginTop: 40 }} />
+        ) : (
+          towPlanes.map((plane) => (
+            <TouchableOpacity
+              key={plane.id}
+              style={styles.towPlaneGateButton}
+              onPress={() => setSelectedTowPlane(plane)}>
+              <Text style={styles.towPlaneGateName}>
+                {plane.displayName || plane.nNumber}
+              </Text>
+              <Text style={styles.towPlaneGateDetail}>
+                {plane.make} {plane.model} — {plane.nNumber}
+              </Text>
+            </TouchableOpacity>
+          ))
+        )}
+
+        <View style={{ height: 60 }} />
+      </ScrollView>
+    );
+  }
+
   return (
     <ScrollView style={styles.container}>
       <TouchableOpacity
@@ -168,11 +236,21 @@ await updateDoc(doc(db, 'flights', completedTow.id), {
       <Text style={styles.title}>Tow Pilot</Text>
       <Text style={styles.pilotName}>{member?.displayName}</Text>
 
-      {/* Completed tow card — needs release altitude */}
+      {/* Persistent tow plane header */}
+      <View style={styles.towPlaneHeader}>
+        <Text style={styles.towPlaneHeaderText}>
+          ✈️ Flying: {selectedTowPlane.displayName || selectedTowPlane.nNumber} — {selectedTowPlane.nNumber}
+        </Text>
+        <TouchableOpacity onPress={() => setSelectedTowPlane(null)}>
+          <Text style={styles.changePlaneText}>Change</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Completed tow card */}
       {completedTow && (
         <View style={styles.completedCard}>
           <Text style={styles.completedTitle}>
-            ✅ Tow Complete — Enter Altidude
+            ✅ Tow Complete — Enter Altitude
           </Text>
           <Text style={styles.completedGlider}>
             {completedTow.displayShorthand}
@@ -214,9 +292,7 @@ await updateDoc(doc(db, 'flights', completedTow.id), {
       )}
 
       {/* Incoming tow briefs */}
-      <Text style={styles.sectionTitle}>
-        Incoming Tow Briefs
-      </Text>
+      <Text style={styles.sectionTitle}>Incoming Tow Briefs</Text>
 
       {loading ? (
         <ActivityIndicator size="large" color="#1A4E8C" style={{ marginTop: 40 }} />
@@ -226,7 +302,7 @@ await updateDoc(doc(db, 'flights', completedTow.id), {
         </View>
       ) : (
         pendingFlights.map((flight) => (
-<View key={flight.id} style={styles.briefCard}>
+          <View key={flight.id} style={styles.briefCard}>
             <Text style={styles.briefGlider}>
               {flight.displayShorthand}
             </Text>
@@ -437,4 +513,48 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
 
+gateSubtitle: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 20,
+  },
+  towPlaneGateButton: {
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#1A4E8C',
+    borderRadius: 12,
+    padding: 20,
+    marginBottom: 16,
+  },
+  towPlaneGateName: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#1A4E8C',
+    marginBottom: 4,
+  },
+  towPlaneGateDetail: {
+    fontSize: 14,
+    color: '#666',
+  },
+  towPlaneHeader: {
+    backgroundColor: '#1A4E8C',
+    borderRadius: 8,
+    padding: 12,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  towPlaneHeaderText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+    flex: 1,
+  },
+  changePlaneText: {
+    color: '#90CAF9',
+    fontSize: 13,
+  },
+
 });
+
