@@ -28,6 +28,7 @@ export default function LineChiefScreen({ navigation }: any) {
   const [airborneFlights, setAirborneFlights] = useState<any[]>([]);
   const [towPlanes, setTowPlanes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [lineChiefMode, setLineChiefMode] = useState(true);
 
   // Fetch tow planes
   useEffect(() => {
@@ -55,7 +56,6 @@ export default function LineChiefScreen({ navigation }: any) {
       where('status', 'in', ['pending', 'certified']),
       orderBy('queuePosition', 'asc')
     );
-
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const flights = snapshot.docs.map(d => ({
         id: d.id,
@@ -64,7 +64,6 @@ export default function LineChiefScreen({ navigation }: any) {
       setPendingFlights(flights);
       setLoading(false);
     });
-
     return unsubscribe;
   }, []);
 
@@ -74,7 +73,6 @@ export default function LineChiefScreen({ navigation }: any) {
       collection(db, 'flights'),
       where('status', '==', 'airborne')
     );
-
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const flights = snapshot.docs.map(d => ({
         id: d.id,
@@ -82,7 +80,19 @@ export default function LineChiefScreen({ navigation }: any) {
       }));
       setAirborneFlights(flights);
     });
+    return unsubscribe;
+  }, []);
 
+  // Listen to global settings
+  useEffect(() => {
+    const unsubscribe = onSnapshot(
+      doc(db, 'globalSettings', 'current'),
+      (snapshot) => {
+        if (snapshot.exists()) {
+          setLineChiefMode(snapshot.data().lineChiefMode ?? true);
+        }
+      }
+    );
     return unsubscribe;
   }, []);
 
@@ -121,6 +131,7 @@ export default function LineChiefScreen({ navigation }: any) {
               await updateDoc(doc(db, 'flights', flight.id), {
                 status: 'airborne',
                 takeoffTime: serverTimestamp(),
+                lineChiefPresent: true,
                 updatedAt: serverTimestamp(),
               });
             } catch (error) {
@@ -179,6 +190,18 @@ export default function LineChiefScreen({ navigation }: any) {
 
       <Text style={styles.title}>Line Chief</Text>
       <Text style={styles.subtitle}>{member?.displayName}</Text>
+
+      {/* No line chief mode banner */}
+      {!lineChiefMode && (
+        <View style={styles.noLCBanner}>
+          <Text style={styles.noLCBannerText}>
+            ✈️ No Line Chief Mode Active
+          </Text>
+          <Text style={styles.noLCBannerSubtext}>
+            Queue is read-only. Pilots are self-logging.
+          </Text>
+        </View>
+      )}
 
       {/* Airborne List */}
       {airborneFlights.length > 0 && (
@@ -240,9 +263,15 @@ export default function LineChiefScreen({ navigation }: any) {
   );
 }
 
-// Separate component for each flight card so it can manage its own tow plane selection
 function FlightCard({ flight, towPlanes, onCertify, onWheelsUp, getTowTypeBadge }: any) {
   const [selectedTowPlane, setSelectedTowPlane] = useState('');
+
+  // Auto-select if only one tow plane active
+  useEffect(() => {
+    if (towPlanes.length === 1) {
+      setSelectedTowPlane(towPlanes[0].id);
+    }
+  }, [towPlanes]);
 
   return (
     <View style={styles.flightCard}>
@@ -270,28 +299,37 @@ function FlightCard({ flight, towPlanes, onCertify, onWheelsUp, getTowTypeBadge 
         )}
       </View>
 
-      {/* Tow plane selection */}
       {flight.status === 'pending' && (
         <>
-          <Text style={styles.towPlaneLabel}>Select Tow Plane</Text>
-          <View style={styles.towPlaneRow}>
-            {towPlanes.map((plane: any) => (
-              <TouchableOpacity
-                key={plane.id}
-                style={[
-                  styles.towPlaneButton,
-                  selectedTowPlane === plane.id && styles.towPlaneSelected,
-                ]}
-                onPress={() => setSelectedTowPlane(plane.id)}>
-                <Text style={[
-                  styles.towPlaneText,
-                  selectedTowPlane === plane.id && styles.towPlaneTextSelected,
-                ]}>
-                  {plane.displayName || plane.nNumber}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
+          <Text style={styles.towPlaneLabel}>
+            {towPlanes.length === 1 ? 'Tow Plane' : 'Select Tow Plane'}
+          </Text>
+          {towPlanes.length === 1 ? (
+            <View style={styles.autoTowPlane}>
+              <Text style={styles.autoTowPlaneText}>
+                ✅ {towPlanes[0].displayName || towPlanes[0].nNumber}
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.towPlaneRow}>
+              {towPlanes.map((plane: any) => (
+                <TouchableOpacity
+                  key={plane.id}
+                  style={[
+                    styles.towPlaneButton,
+                    selectedTowPlane === plane.id && styles.towPlaneSelected,
+                  ]}
+                  onPress={() => setSelectedTowPlane(plane.id)}>
+                  <Text style={[
+                    styles.towPlaneText,
+                    selectedTowPlane === plane.id && styles.towPlaneTextSelected,
+                  ]}>
+                    {plane.displayName || plane.nNumber}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
 
           <TouchableOpacity
             style={[
@@ -305,7 +343,6 @@ function FlightCard({ flight, towPlanes, onCertify, onWheelsUp, getTowTypeBadge 
         </>
       )}
 
-      {/* Wheels up — only after certified */}
       {flight.status === 'certified' && (
         <View>
           <Text style={styles.certifiedTag}>
@@ -346,6 +383,24 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#666',
     marginBottom: 24,
+  },
+  noLCBanner: {
+    backgroundColor: '#FFF3E0',
+    borderWidth: 1,
+    borderColor: '#FF9800',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 16,
+  },
+  noLCBannerText: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    color: '#E65100',
+    marginBottom: 2,
+  },
+  noLCBannerSubtext: {
+    fontSize: 13,
+    color: '#BF360C',
   },
   sectionTitle: {
     fontSize: 20,
@@ -449,6 +504,17 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#333',
     marginBottom: 8,
+  },
+  autoTowPlane: {
+    backgroundColor: '#E8F5E9',
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 12,
+  },
+  autoTowPlaneText: {
+    fontSize: 15,
+    color: '#2E7D32',
+    fontWeight: '600',
   },
   towPlaneRow: {
     flexDirection: 'row',

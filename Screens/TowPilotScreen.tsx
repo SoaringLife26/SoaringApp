@@ -128,6 +128,8 @@ const handleModeToggle = async () => {
       });
     } catch (error: any) {
       Alert.alert('Error', error?.message || String(error));
+    } finally {
+      setTogglingMode(false);
     }
   };
 
@@ -285,10 +287,10 @@ await updateDoc(doc(db, 'flights', completedTow.id), {
         onPress={handleModeToggle}
         disabled={togglingMode}>
         <Text style={styles.modeToggleText}>
-          {lineChiefMode ? '👤 Line Chief Mode: ON' : '✈️ No Line Chief Mode: ON'}
+          {lineChiefMode ? '👤 Line Chief Mode: With Line Chief' : '✈️ Line Chief Mode: Without Line Chief'}
         </Text>
         <Text style={styles.modeToggleSubtext}>
-          {lineChiefMode ? 'Tap to switch to no line chief mode' : 'Tap to enable line chief mode'}
+          {lineChiefMode ? 'Tap to switch to without line chief' : 'Tap to switch to with line chief'}
         </Text>
       </TouchableOpacity>
 
