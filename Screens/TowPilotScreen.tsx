@@ -210,6 +210,7 @@ await updateDoc(doc(db, 'flights', completedTow.id), {
     if (!flight.lineChiefPresent) return '#E3F2FD';
     if (flight.gliderOwnership === 'private' ||
         flight.gliderOwnership === 'private_other') return '#FFF8E1';
+    if (flight.isDemoRide) return '#E8F5E9';
     return '#FFFFFF';
   };
 
@@ -386,6 +387,11 @@ await updateDoc(doc(db, 'flights', completedTow.id), {
               <Text style={styles.briefNote}>Note: {flight.towTypeNote}</Text>
             )}
             <View style={styles.badgeRow}>
+              {flight.isDemoRide && (
+              <View style={[styles.badge, styles.badgeDemoRide]}>
+                <Text style={styles.badgeText}>DEMO RIDE</Text>
+              </View>
+            )}
               {flight.studentFlight && (
                 <View style={styles.badge}>
                   <Text style={styles.badgeText}>STUDENT</Text>
@@ -651,7 +657,9 @@ gateSubtitle: {
     fontSize: 12,
     color: '#666',
   },
-
+badgeDemoRide: {
+    backgroundColor: '#2E7D32',
+  },
 
 });
 

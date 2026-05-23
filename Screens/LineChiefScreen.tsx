@@ -271,7 +271,9 @@ function getCardColor(flight: any) {
   if (!flight.lineChiefPresent) return '#E3F2FD';
   if (flight.gliderOwnership === 'private' ||
       flight.gliderOwnership === 'private_other') return '#FFF8E1';
+  if (flight.isDemoRide) return '#E8F5E9';
   return '#FFFFFF';
+
 }
 
 
@@ -295,6 +297,8 @@ function FlightCard({ flight, towPlanes, activeTowPlaneId, onCertify, onWheelsUp
       </Text>
       <Text style={styles.flightType}>{getTowTypeBadge(flight.towType)}</Text>
 
+    
+
       <View style={styles.badgeRow}>
         {flight.studentFlight && (
           <View style={styles.badge}>
@@ -309,6 +313,11 @@ function FlightCard({ flight, towPlanes, activeTowPlaneId, onCertify, onWheelsUp
         {flight.hasPassenger && (
           <View style={[styles.badge, styles.badgePassenger]}>
             <Text style={styles.badgeText}>PASSENGER</Text>
+          </View>
+        )}
+        {flight.isDemoRide && (
+          <View style={[styles.badge, styles.badgeDemoRide]}>
+            <Text style={styles.badgeText}>DEMO RIDE</Text>
           </View>
         )}
       </View>
@@ -597,4 +606,9 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#999',
   },
+
+  badgeDemoRide: {
+    backgroundColor: '#2E7D32',
+  },
+
 });

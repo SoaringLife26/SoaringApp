@@ -149,6 +149,7 @@ export default function MyTicketScreen({ navigation }: any) {
     if (!flight.lineChiefPresent) return '#E3F2FD';
     if (flight.gliderOwnership === 'private' ||
         flight.gliderOwnership === 'private_other') return '#FFF8E1';
+    if (flight.isDemoRide) return '#E8F5E9';
     return '#FFFFFF';
   };
 
@@ -194,6 +195,11 @@ export default function MyTicketScreen({ navigation }: any) {
               <View style={[styles.statusBadge, { backgroundColor: status.color }]}>
                 <Text style={styles.statusText}>{status.label}</Text>
               </View>
+              {flight.isDemoRide && (
+                <View style={[styles.statusBadge, { backgroundColor: '#2E7D32' }]}>
+                  <Text style={styles.statusText}>DEMO RIDE</Text>
+                </View>
+              )}
 
               <Text style={styles.gliderName}>{flight.gliderDisplayName}</Text>
               <Text style={styles.flightDetail}>
