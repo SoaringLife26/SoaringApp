@@ -362,6 +362,11 @@ await updateDoc(doc(db, 'flights', completedTow.id), {
         </View>
       )}
 
+      <TouchableOpacity
+        style={styles.endOfDayButton}
+        onPress={() => navigation.navigate('EndOfDay')}>
+        <Text style={styles.endOfDayText}>📋 End of Day Checklist</Text>
+      </TouchableOpacity>
       {/* Incoming tow briefs */}
       <Text style={styles.sectionTitle}>Incoming Tow Briefs</Text>
 
@@ -630,6 +635,19 @@ gateSubtitle: {
   changePlaneText: {
     color: '#90CAF9',
     fontSize: 13,
+  },
+
+  endOfDayButton: {
+    backgroundColor: '#1A4E8C',
+    borderRadius: 8,
+    padding: 10,
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  endOfDayText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
   },
 
   modeToggle: {
