@@ -8,7 +8,7 @@ import {
   ScrollView,
   Alert,
 } from 'react-native';
-import { collection, addDoc, serverTimestamp, getDocs, query, where, orderBy } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, getDocs, query, where, orderBy, onSnapshot, doc } from 'firebase/firestore';
 import { db } from '../firebaseConfig';
 import { useMember } from '../context/MemberContext';
 import { Picker } from '@react-native-picker/picker';
@@ -30,6 +30,7 @@ export default function TowRequestScreen({ navigation }: any) {
   const { member } = useMember();
   const [clubGliders, setClubGliders] = useState<any[]>([]);
   const [glidersLoading, setGlidersLoading] = useState(true);
+  const [lineChiefMode, setLineChiefMode] = useState(true);
   const [gliderPath, setGliderPath] = useState<'club' | 'private' | 'other'>('club');
   const [selectedGlider, setSelectedGlider] = useState<any>(null);
   const [otherGliderDesc, setOtherGliderDesc] = useState('');
@@ -67,7 +68,20 @@ export default function TowRequestScreen({ navigation }: any) {
       }
     };
 
-    fetchGliders();
+   fetchGliders();
+  }, []);
+
+  // Listen to line chief mode
+  useEffect(() => {
+    const unsubscribe = onSnapshot(
+      doc(db, 'globalSettings', 'current'),
+      (snapshot) => {
+        if (snapshot.exists()) {
+          setLineChiefMode(snapshot.data().lineChiefMode ?? true);
+        }
+      }
+    );
+    return unsubscribe;
   }, []);
 
   const selectedGliderIsTwoSeat =
@@ -158,7 +172,7 @@ export default function TowRequestScreen({ navigation }: any) {
         needsReconciliation: false,
         missingFlightTime: false,
         postponeCount: 0,
-        lineChiefPresent: false,
+        lineChiefPresent: lineChiefMode,
       });
 
       Alert.alert(
@@ -560,7 +574,7 @@ const styles = StyleSheet.create({
     marginTop: 12,
     fontStyle: 'italic',
   },
-  
+
   inputDisabled: {
     backgroundColor: '#f0f0f0',
     borderColor: '#ddd',

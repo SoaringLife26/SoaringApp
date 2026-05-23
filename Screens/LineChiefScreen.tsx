@@ -212,7 +212,7 @@ export default function LineChiefScreen({ navigation }: any) {
             ✈️ Airborne ({airborneFlights.length})
           </Text>
           {airborneFlights.map((flight) => (
-            <View key={flight.id} style={styles.airborneCard}>
+            <View key={flight.id} style={[styles.airborneCard, { backgroundColor: getCardColor(flight) }]}>
               <View style={styles.airborneHeader}>
                 <Text style={styles.airborneGlider}>
                   {flight.displayShorthand}
@@ -266,6 +266,15 @@ export default function LineChiefScreen({ navigation }: any) {
   );
 }
 
+function getCardColor(flight: any) {
+  if (flight.flightCategory === 'aero_retrieve') return '#FCE4EC';
+  if (!flight.lineChiefPresent) return '#E3F2FD';
+  if (flight.gliderOwnership === 'private' ||
+      flight.gliderOwnership === 'private_other') return '#FFF8E1';
+  return '#FFFFFF';
+}
+
+
 function FlightCard({ flight, towPlanes, activeTowPlaneId, onCertify, onWheelsUp, getTowTypeBadge }: any) {
   const [selectedTowPlane, setSelectedTowPlane] = useState('');
 
@@ -279,7 +288,7 @@ function FlightCard({ flight, towPlanes, activeTowPlaneId, onCertify, onWheelsUp
   }, [towPlanes, activeTowPlaneId]);
 
   return (
-    <View style={styles.flightCard}>
+    <View style={[styles.flightCard, { backgroundColor: getCardColor(flight) }]}>
       <Text style={styles.flightGlider}>{flight.displayShorthand}</Text>
       <Text style={styles.flightAltitude}>
         {flight.requestedAltitudeFt?.toLocaleString()} ft AGL

@@ -205,6 +205,15 @@ await updateDoc(doc(db, 'flights', completedTow.id), {
     }
   };
 
+  const getCardColor = (flight: any) => {
+    if (flight.flightCategory === 'aero_retrieve') return '#FCE4EC';
+    if (!flight.lineChiefPresent) return '#E3F2FD';
+    if (flight.gliderOwnership === 'private' ||
+        flight.gliderOwnership === 'private_other') return '#FFF8E1';
+    return '#FFFFFF';
+  };
+
+
   const getTowTypeBadge = (towType: string) => {
     const badges: Record<string, string> = {
       normal:        'Normal',
@@ -309,7 +318,7 @@ await updateDoc(doc(db, 'flights', completedTow.id), {
 
       {/* Completed tow card */}
       {completedTow && (
-        <View style={styles.completedCard}>
+      <View style={[styles.completedCard, { backgroundColor: getCardColor(completedTow) }]}>
           <Text style={styles.completedTitle}>
             ✅ Tow Complete — Enter Altitude
           </Text>
@@ -363,7 +372,7 @@ await updateDoc(doc(db, 'flights', completedTow.id), {
         </View>
       ) : (
         pendingFlights.map((flight) => (
-          <View key={flight.id} style={styles.briefCard}>
+          <View key={flight.id} style={[styles.briefCard, { backgroundColor: getCardColor(flight) }]}>
             <Text style={styles.briefGlider}>
               {flight.displayShorthand}
             </Text>
