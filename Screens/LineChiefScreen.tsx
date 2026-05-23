@@ -192,7 +192,6 @@ export default function LineChiefScreen({ navigation }: any) {
 
       <Text style={styles.title}>Line Chief</Text>
       <Text style={styles.subtitle}>{member?.displayName}</Text>
-
       {/* No line chief mode banner */}
       {!lineChiefMode && (
         <View style={styles.noLCBanner}>
@@ -205,6 +204,11 @@ export default function LineChiefScreen({ navigation }: any) {
         </View>
       )}
 
+      <TouchableOpacity
+        style={styles.endOfDayButton}
+        onPress={() => navigation.navigate('EndOfDay')}>
+        <Text style={styles.endOfDayText}>📋 End of Day Checklist</Text>
+      </TouchableOpacity>
       {/* Airborne List */}
       {airborneFlights.length > 0 && (
         <>
@@ -610,5 +614,16 @@ const styles = StyleSheet.create({
   badgeDemoRide: {
     backgroundColor: '#2E7D32',
   },
-
+  endOfDayButton: {
+    backgroundColor: '#1A4E8C',
+    borderRadius: 8,
+    padding: 10,
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  endOfDayText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
 });
