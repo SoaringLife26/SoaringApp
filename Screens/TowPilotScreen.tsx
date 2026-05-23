@@ -19,6 +19,7 @@ import {
   serverTimestamp,
   orderBy,
   getDocs,
+  getDoc,
 } from 'firebase/firestore';
 import { db } from '../firebaseConfig';
 import { useMember } from '../context/MemberContext';
@@ -30,9 +31,11 @@ export default function TowPilotScreen({ navigation }: any) {
   const [releaseAltitude, setReleaseAltitude] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [towPlanes, setTowPlanes] = useState<any[]>([]);
+ const [towPlanes, setTowPlanes] = useState<any[]>([]);
   const [selectedTowPlane, setSelectedTowPlane] = useState<any>(null);
   const [towPlanesLoading, setTowPlanesLoading] = useState(true);
+  const [lineChiefMode, setLineChiefMode] = useState(true);
+  const [togglingMode, setTogglingMode] = useState(false);
 
   // Real-time listener for pending flights
   useEffect(() => {
@@ -100,6 +103,33 @@ export default function TowPilotScreen({ navigation }: any) {
     fetchTowPlanes();
   }, []);
 
+  // Real-time listener for global settings
+  useEffect(() => {
+    const unsubscribe = onSnapshot(
+      doc(db, 'globalSettings', 'current'),
+      (snapshot) => {
+        console.log('globalSettings exists:', snapshot.exists());
+        console.log('globalSettings data:', JSON.stringify(snapshot.data()));
+        if (snapshot.exists()) {
+          setLineChiefMode(snapshot.data().lineChiefMode ?? true);
+        }
+      }
+    );
+    return unsubscribe;
+  }, []);
+
+const handleModeToggle = async () => {
+    setTogglingMode(true);
+    try {
+      await updateDoc(doc(db, 'globalSettings', 'current'), {
+        lineChiefMode: !lineChiefMode,
+        modeChangedAt: serverTimestamp(),
+        modeChangedByUID: member?.uid,
+      });
+    } catch (error: any) {
+      Alert.alert('Error', error?.message || String(error));
+    }
+  };
 
   const handleReleaseAltitude = async () => {
     if (!releaseAltitude) {
@@ -245,6 +275,22 @@ await updateDoc(doc(db, 'flights', completedTow.id), {
           <Text style={styles.changePlaneText}>Change</Text>
         </TouchableOpacity>
       </View>
+
+      {/* Line chief mode toggle */}
+      <TouchableOpacity
+        style={[
+          styles.modeToggle,
+          lineChiefMode ? styles.modeToggleOn : styles.modeToggleOff,
+        ]}
+        onPress={handleModeToggle}
+        disabled={togglingMode}>
+        <Text style={styles.modeToggleText}>
+          {lineChiefMode ? '👤 Line Chief Mode: ON' : '✈️ No Line Chief Mode: ON'}
+        </Text>
+        <Text style={styles.modeToggleSubtext}>
+          {lineChiefMode ? 'Tap to switch to no line chief mode' : 'Tap to enable line chief mode'}
+        </Text>
+      </TouchableOpacity>
 
       {/* Completed tow card */}
       {completedTow && (
@@ -555,6 +601,33 @@ gateSubtitle: {
     color: '#90CAF9',
     fontSize: 13,
   },
+
+  modeToggle: {
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 20,
+  },
+  modeToggleOn: {
+    backgroundColor: '#E8F5E9',
+    borderWidth: 1,
+    borderColor: '#4CAF50',
+  },
+  modeToggleOff: {
+    backgroundColor: '#FFF3E0',
+    borderWidth: 1,
+    borderColor: '#FF9800',
+  },
+  modeToggleText: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 2,
+  },
+  modeToggleSubtext: {
+    fontSize: 12,
+    color: '#666',
+  },
+
 
 });
 
