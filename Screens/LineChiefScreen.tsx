@@ -30,6 +30,9 @@ export default function LineChiefScreen({ navigation }: any) {
   const [loading, setLoading] = useState(true);
   const [lineChiefMode, setLineChiefMode] = useState(true);
   const [activeTowPlaneId, setActiveTowPlaneId] = useState('');
+  const [landingAdjustFlight, setLandingAdjustFlight] = useState<any>(null);
+  const [landingProposedTime, setLandingProposedTime] = useState<Date | null>(null);
+  const [landingOffset, setLandingOffset] = useState(0);
 
   // Fetch tow planes
   useEffect(() => {
@@ -146,28 +149,31 @@ export default function LineChiefScreen({ navigation }: any) {
   };
 
   const handleLogLanding = async (flight: any) => {
-    Alert.alert(
-      'Confirm Landing',
-      `Log landing for ${flight.displayShorthand}?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Log Landing',
-          onPress: async () => {
-            try {
-              await updateDoc(doc(db, 'flights', flight.id), {
-                status: 'landed',
-                landingTime: serverTimestamp(),
-                landingLoggedBy: 'line_chief',
-                updatedAt: serverTimestamp(),
-              });
-            } catch (error) {
-              Alert.alert('Error', 'Could not log landing.');
-            }
-          },
-        },
-      ]
-    );
+    // Show adjustment panel instead of committing immediately
+    setLandingAdjustFlight(flight);
+    setLandingProposedTime(new Date());
+    setLandingOffset(0);
+  };
+
+  const handleConfirmLanding = async () => {
+    if (!landingAdjustFlight || !landingProposedTime) return;
+    try {
+      const adjustedTime = new Date(
+        landingProposedTime.getTime() + landingOffset * 60000
+      );
+      await updateDoc(doc(db, 'flights', landingAdjustFlight.id), {
+        status: 'landed',
+        landingTime: adjustedTime,
+        landingTimeOffsetMin: landingOffset,
+        landingLoggedBy: 'line_chief',
+        updatedAt: serverTimestamp(),
+      });
+      setLandingAdjustFlight(null);
+      setLandingProposedTime(null);
+      setLandingOffset(0);
+    } catch (error) {
+      Alert.alert('Error', 'Could not log landing.');
+    }
   };
 
   const getTowTypeBadge = (towType: string) => {
@@ -209,6 +215,63 @@ export default function LineChiefScreen({ navigation }: any) {
         onPress={() => navigation.navigate('EndOfDay')}>
         <Text style={styles.endOfDayText}>📋 End of Day Checklist</Text>
       </TouchableOpacity>
+      
+      {/* Landing Time Adjustment Panel */}
+      {landingAdjustFlight && landingProposedTime && (
+        <View style={styles.adjustPanel}>
+          <Text style={styles.adjustTitle}>
+            🛬 Log Landing — {landingAdjustFlight.displayShorthand}
+          </Text>
+          <Text style={styles.adjustRecorded}>
+            Recorded: {landingProposedTime.toLocaleTimeString()}
+          </Text>
+          <Text style={styles.adjustLabel}>
+            Adjust if you tapped late or early:
+          </Text>
+          <View style={styles.adjustButtons}>
+            {[-5, -3, -1, 0, 1, 3, 5].map((offset) => (
+              <TouchableOpacity
+                key={offset}
+                style={[
+                  styles.adjustButton,
+                  landingOffset === offset && styles.adjustButtonSelected,
+                ]}
+                onPress={() => setLandingOffset(offset)}>
+                <Text style={[
+                  styles.adjustButtonText,
+                  landingOffset === offset && styles.adjustButtonTextSelected,
+                ]}>
+                  {offset === 0 ? '0' : offset > 0 ? `+${offset}` : `${offset}`}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          {landingOffset !== 0 && (
+            <Text style={styles.adjustResult}>
+              Final time: {new Date(
+                landingProposedTime.getTime() + landingOffset * 60000
+              ).toLocaleTimeString()}
+            </Text>
+          )}
+          <View style={styles.adjustConfirmRow}>
+            <TouchableOpacity
+              style={styles.adjustCancelButton}
+              onPress={() => {
+                setLandingAdjustFlight(null);
+                setLandingProposedTime(null);
+                setLandingOffset(0);
+              }}>
+              <Text style={styles.adjustCancelText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.adjustConfirmButton}
+              onPress={handleConfirmLanding}>
+              <Text style={styles.adjustConfirmText}>Confirm Landing</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+      
       {/* Airborne List */}
       {airborneFlights.length > 0 && (
         <>
@@ -626,4 +689,94 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
   },
+  adjustPanel: {
+    backgroundColor: '#E3F2FD',
+    borderWidth: 1,
+    borderColor: '#1A4E8C',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+  },
+  adjustTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#1A4E8C',
+    marginBottom: 4,
+  },
+  adjustRecorded: {
+    fontSize: 14,
+    color: '#555',
+    marginBottom: 8,
+  },
+  adjustLabel: {
+    fontSize: 13,
+    color: '#666',
+    marginBottom: 8,
+  },
+  adjustButtons: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 8,
+  },
+  adjustButton: {
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    minWidth: 44,
+    alignItems: 'center',
+  },
+  adjustButtonSelected: {
+    backgroundColor: '#1A4E8C',
+    borderColor: '#1A4E8C',
+  },
+  adjustButtonText: {
+    fontSize: 14,
+    color: '#333',
+    fontWeight: '600',
+  },
+  adjustButtonTextSelected: {
+    color: '#fff',
+  },
+  adjustResult: {
+    fontSize: 14,
+    color: '#1A4E8C',
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  adjustConfirmRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 8,
+  },
+  adjustCancelButton: {
+    flex: 1,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    padding: 12,
+    alignItems: 'center',
+  },
+  adjustCancelText: {
+    color: '#666',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  adjustConfirmButton: {
+    flex: 2,
+    backgroundColor: '#1A4E8C',
+    borderRadius: 8,
+    padding: 12,
+    alignItems: 'center',
+  },
+  adjustConfirmText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+
 });
