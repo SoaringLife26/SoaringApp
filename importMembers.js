@@ -32,11 +32,26 @@ function cleanMemberNumber(raw) {
   return raw.toString().split('/')[0].trim();
 }
 
-function parseTSV(content) {
+function parseCSV(content) {
   const lines = content.trim().split('\n');
-  const headers = lines[0].split('\t').map(h => h.trim().replace(/\r/g, ''));
+  const headers = lines[0].split(',').map(h => h.trim().replace(/\r/g, '').replace(/"/g, ''));
   return lines.slice(1).map(line => {
-    const values = line.split('\t').map(v => v.trim().replace(/\r/g, ''));
+    // Handle quoted fields that may contain commas
+    const values = [];
+    let current = '';
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const char = line[i];
+      if (char === '"') {
+        inQuotes = !inQuotes;
+      } else if (char === ',' && !inQuotes) {
+        values.push(current.trim().replace(/\r/g, ''));
+        current = '';
+      } else {
+        current += char;
+      }
+    }
+    values.push(current.trim().replace(/\r/g, ''));
     const record = {};
     headers.forEach((h, i) => { record[h] = values[i] || ''; });
     return record;
@@ -66,7 +81,7 @@ function getMemberFlags(level, noTow) {
 async function importMembers(filePath) {
   console.log(`\nReading file: ${filePath}`);
   const content = fs.readFileSync(filePath, 'utf8');
-  const records = parseTSV(content);
+  const records = parseCSV(content);
   console.log(`Found ${records.length} member records\n`);
 
   let created = 0;

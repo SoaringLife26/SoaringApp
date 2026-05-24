@@ -51,7 +51,7 @@ export function MemberProvider({ children }: { children: React.ReactNode }) {
 
       if (firebaseUser) {
         try {
-          const memberDoc = await getDoc(
+        const memberDoc = await getDoc(
             doc(db, 'members', firebaseUser.uid)
           );
 

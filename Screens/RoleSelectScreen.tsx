@@ -73,7 +73,7 @@ export default function RoleSelectScreen({ navigation }: any) {
         <Text style={styles.welcome}>Welcome, {member.displayName}</Text>
       ) : null}
       <Text style={styles.subtitle}>Select your role for today</Text>
-
+    
       {availableRoles.map((role) => (
         <TouchableOpacity
           key={role.id}
