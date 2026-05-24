@@ -14,7 +14,7 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.rdjenkins.tsaflightline",
+      "bundleIdentifier": "com.texassoaring.tsaflightline",
       "buildNumber": "1"
     },
     "android": {
