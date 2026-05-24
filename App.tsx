@@ -1,3 +1,4 @@
+import 'react-native-gesture-handler';
 import React from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
@@ -11,6 +12,7 @@ import LineChiefScreen from './Screens/LineChiefScreen';
 import MyTicketScreen from './Screens/MyTicketScreen';
 import DemoRideScreen from './Screens/DemoRideScreen';
 import EndOfDayScreen from './Screens/EndOfDayScreen';
+
 
 const Stack = createStackNavigator();
 

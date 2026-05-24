@@ -19,6 +19,7 @@ import {
   orderBy,
   getDocs,
 } from 'firebase/firestore';
+
 import { db } from '../firebaseConfig';
 import { useMember } from '../context/MemberContext';
 
@@ -148,6 +149,43 @@ export default function LineChiefScreen({ navigation }: any) {
     );
   };
 
+const handleMoveUp = async (flight: any) => {
+    const index = pendingFlights.findIndex(f => f.id === flight.id);
+    if (index <= 0) return;
+    try {
+      const above = pendingFlights[index - 1];
+      await updateDoc(doc(db, 'flights', flight.id), {
+        queuePosition: above.queuePosition,
+        updatedAt: serverTimestamp(),
+      });
+      await updateDoc(doc(db, 'flights', above.id), {
+        queuePosition: flight.queuePosition,
+        updatedAt: serverTimestamp(),
+      });
+    } catch (error) {
+      Alert.alert('Error', 'Could not reorder queue.');
+    }
+  };
+
+  const handleMoveDown = async (flight: any) => {
+    const index = pendingFlights.findIndex(f => f.id === flight.id);
+    if (index >= pendingFlights.length - 1) return;
+    try {
+      const below = pendingFlights[index + 1];
+      await updateDoc(doc(db, 'flights', flight.id), {
+        queuePosition: below.queuePosition,
+        updatedAt: serverTimestamp(),
+      });
+      await updateDoc(doc(db, 'flights', below.id), {
+        queuePosition: flight.queuePosition,
+        updatedAt: serverTimestamp(),
+      });
+    } catch (error) {
+      Alert.alert('Error', 'Could not reorder queue.');
+    }
+  };
+
+
   const handleLogLanding = async (flight: any) => {
     // Show adjustment panel instead of committing immediately
     setLandingAdjustFlight(flight);
@@ -188,8 +226,8 @@ export default function LineChiefScreen({ navigation }: any) {
     return badges[towType] || towType;
   };
 
-  return (
-    <ScrollView style={styles.container}>
+ return (
+      <ScrollView style={styles.container}>
       <TouchableOpacity
         style={styles.backButton}
         onPress={() => navigation.goBack()}>
@@ -315,7 +353,7 @@ export default function LineChiefScreen({ navigation }: any) {
           <Text style={styles.emptyText}>No pending tow requests</Text>
         </View>
       ) : (
-        pendingFlights.map((flight) => (
+        pendingFlights.map((flight, index) => (
           <FlightCard
             key={flight.id}
             flight={flight}
@@ -324,13 +362,16 @@ export default function LineChiefScreen({ navigation }: any) {
             onCertify={handleCertify}
             onWheelsUp={handleWheelsUp}
             getTowTypeBadge={getTowTypeBadge}
+            onMoveUp={handleMoveUp}
+            onMoveDown={handleMoveDown}
+            isFirst={index === 0}
+            isLast={index === pendingFlights.length - 1}
           />
         ))
       )}
-
       <View style={{ height: 60 }} />
     </ScrollView>
-  );
+     );
 }
 
 function getCardColor(flight: any) {
@@ -344,7 +385,7 @@ function getCardColor(flight: any) {
 }
 
 
-function FlightCard({ flight, towPlanes, activeTowPlaneId, onCertify, onWheelsUp, getTowTypeBadge }: any) {
+function FlightCard({ flight, towPlanes, activeTowPlaneId, onCertify, onWheelsUp, getTowTypeBadge, onMoveUp, onMoveDown, isFirst, isLast }: any) {
   const [selectedTowPlane, setSelectedTowPlane] = useState('');
 
   // Auto-select from active tow pilot session or single plane
@@ -442,6 +483,25 @@ function FlightCard({ flight, towPlanes, activeTowPlaneId, onCertify, onWheelsUp
             style={styles.wheelsUpButton}
             onPress={() => onWheelsUp(flight)}>
             <Text style={styles.wheelsUpText}>⬆️ WHEELS UP</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* Queue reorder buttons — only for pending flights */}
+      {flight.status === 'pending' && (
+        <View style={styles.reorderRow}>
+          <Text style={styles.reorderLabel}>Move in queue:</Text>
+          <TouchableOpacity
+            style={[styles.reorderButton, isFirst && styles.reorderButtonDisabled]}
+            onPress={() => !isFirst && onMoveUp(flight)}
+            disabled={isFirst}>
+            <Text style={styles.reorderButtonText}>▲ Up</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.reorderButton, isLast && styles.reorderButtonDisabled]}
+            onPress={() => !isLast && onMoveDown(flight)}
+            disabled={isLast}>
+            <Text style={styles.reorderButtonText}>▼ Down</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -778,5 +838,34 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: 'bold',
   },
+  reorderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 10,
+  },
+  reorderLabel: {
+    fontSize: 12,
+    color: '#888',
+    flex: 1,
+  },
+  reorderButton: {
+    backgroundColor: '#f0f4f8',
+    borderWidth: 1,
+    borderColor: '#1A4E8C',
+    borderRadius: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+  },
+  reorderButtonDisabled: {
+    borderColor: '#ddd',
+    backgroundColor: '#f9f9f9',
+  },
+  reorderButtonText: {
+    fontSize: 12,
+    color: '#1A4E8C',
+    fontWeight: '600',
+  },
+
 
 });
