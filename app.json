@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "SoaringApp4",
+    "name": "TSA Flight Line",
     "slug": "SoaringApp4",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -13,7 +13,9 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.rdjenkins.tsaflightline",
+      "buildNumber": "1"
     },
     "android": {
       "adaptiveIcon": {
@@ -21,10 +23,16 @@
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.texassoaring.tsaflightline"
     },
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "a0ac76cb-1a0e-4c3c-b288-097531b883c1"
+      }
     }
   }
 }
