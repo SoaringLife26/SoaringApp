@@ -180,10 +180,15 @@ export default function TowPilotScreen({ navigation }: any) {
     }
   };
 
-  const handleTowComplete = async (flight: any) => {
+  const handleConfirmOnTow = async (flight: any) => {
     try {
       await updateDoc(doc(db, 'flights', flight.id), {
-        status: 'landed',
+        towMatchConfirmed: true,
+        towMatchConfirmedAt: serverTimestamp(),
+        status: 'airborne',
+        takeoffTime: serverTimestamp(),
+        towPilotUID: member?.uid,
+        towPilotName: member?.displayName,
         updatedAt: serverTimestamp(),
       });
     } catch (error) {
@@ -568,11 +573,15 @@ export default function TowPilotScreen({ navigation }: any) {
                 </View>
               )}
             </View>
-            <TouchableOpacity
-              style={styles.towCompleteButton}
-              onPress={() => handleTowComplete(flight)}>
-              <Text style={styles.towCompleteText}>Tow Complete</Text>
-            </TouchableOpacity>
+            {!flight.lineChiefPresent ? (
+              <TouchableOpacity
+                style={styles.towCompleteButton}
+                onPress={() => handleConfirmOnTow(flight)}>
+                <Text style={styles.towCompleteText}>Confirmed — On Tow</Text>
+              </TouchableOpacity>
+            ) : (
+              <Text style={styles.briefNote}>Awaiting Line Chief certification</Text>
+            )}
           </View>
         ))
       )}

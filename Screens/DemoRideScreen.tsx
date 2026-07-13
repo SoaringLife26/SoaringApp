@@ -289,7 +289,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 28,
     fontWeight: 'bold',
-    color: '##2E7D32',
+    color: '#2E7D32',
     marginBottom: 4,
   },
   rideGiverName: {

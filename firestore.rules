@@ -1,0 +1,58 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isActiveMember() {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/members/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/members/$(request.auth.uid)).data.membershipStatus == 'Active';
+    }
+
+    // Member profiles: managed by the admin import script (service account),
+    // never written from the app. Each member can read only their own doc.
+    match /members/{memberId} {
+      allow read: if isSignedIn() && request.auth.uid == memberId;
+      allow write: if false;
+    }
+
+    // Tow requests / tickets. Created by the requesting pilot, but then
+    // read and updated by other roles (line chief, tow pilot) as the
+    // flight moves through the queue.
+    match /flights/{flightId} {
+      allow read: if isActiveMember();
+      allow create: if isActiveMember() && request.resource.data.pilotId == request.auth.uid;
+      allow update: if isActiveMember();
+      allow delete: if false;
+    }
+
+    // End-of-day closeout records.
+    match /dailySessions/{sessionId} {
+      allow read: if isActiveMember();
+      allow create: if isActiveMember();
+      allow update, delete: if false;
+    }
+
+    // Shared singleton: line chief mode toggle + active tow plane/pilot assignment.
+    match /globalSettings/{settingId} {
+      allow read: if isActiveMember();
+      allow update: if isActiveMember();
+      allow create, delete: if false;
+    }
+
+    // Reference data, read-only from the app.
+    match /towPlanes/{planeId} {
+      allow read: if isActiveMember();
+      allow write: if false;
+    }
+
+    match /gliders/{gliderId} {
+      allow read: if isActiveMember();
+      allow write: if false;
+    }
+  }
+}
