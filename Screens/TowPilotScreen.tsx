@@ -20,6 +20,7 @@ import {
   serverTimestamp,
   orderBy,
   getDocs,
+  runTransaction,
 } from 'firebase/firestore';
 import { db } from '../firebaseConfig';
 import { useMember } from '../context/MemberContext';
@@ -140,12 +141,23 @@ export default function TowPilotScreen({ navigation }: any) {
     if (!completedTow) return;
     setSubmitting(true);
     try {
-      await updateDoc(doc(db, 'flights', completedTow.id), {
-        releaseAltitudeFt: parseInt(releaseAltitude),
-        towPilotUID: member?.uid,
-        towPilotName: member?.displayName,
-        status: 'complete',
-        updatedAt: serverTimestamp(),
+      const flightRef = doc(db, 'flights', completedTow.id);
+      await runTransaction(db, async (transaction) => {
+        const snap = await transaction.get(flightRef);
+        const flight = snap.data();
+        // Release altitude is the tow pilot's whole job — recording it never
+        // depends on whether the glider pilot has logged their flight time.
+        // Only club-glider flights need the pilot's own time entry too; once
+        // that's the only other requirement and it's already in, we can
+        // close the flight out. Anything else stays 'landed'.
+        const pilotSideDone = flight?.gliderOwnership !== 'club' || !!flight?.pilotFlightTime;
+        transaction.update(flightRef, {
+          releaseAltitudeFt: parseInt(releaseAltitude),
+          towPilotUID: member?.uid,
+          towPilotName: member?.displayName,
+          status: pilotSideDone ? 'complete' : 'landed',
+          updatedAt: serverTimestamp(),
+        });
       });
       setCompletedTow(null);
       setReleaseAltitude('');

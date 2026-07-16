@@ -19,6 +19,7 @@ import {
   serverTimestamp,
   orderBy,
   limit,
+  runTransaction,
 } from 'firebase/firestore';
 import { db } from '../firebaseConfig';
 import { useMember } from '../context/MemberContext';
@@ -90,11 +91,21 @@ export default function MyTicketScreen({ navigation }: any) {
     }
     setSubmittingTime(true);
     try {
-      await updateDoc(doc(db, 'flights', flight.id), {
-        pilotFlightTime: parsed,
-        pilotFlightTimeAt: serverTimestamp(),
-        status: 'complete',
-        updatedAt: serverTimestamp(),
+      const flightRef = doc(db, 'flights', flight.id);
+      await runTransaction(db, async (transaction) => {
+        const snap = await transaction.get(flightRef);
+        const current = snap.data();
+        // Flight time is the pilot's own record, independent of the tow
+        // pilot's release-altitude entry. Only close the flight out once
+        // the tow side is also done (release altitude logged, or a pattern
+        // tow that's already fixed-billed).
+        const towSideDone = !!current?.releaseAltitudeFt || !!current?.patternTowConfirmed;
+        transaction.update(flightRef, {
+          pilotFlightTime: parsed,
+          pilotFlightTimeAt: serverTimestamp(),
+          status: towSideDone ? 'complete' : 'landed',
+          updatedAt: serverTimestamp(),
+        });
       });
       setFlightTime('');
       Alert.alert('Recorded', 'Flight time saved successfully.');
