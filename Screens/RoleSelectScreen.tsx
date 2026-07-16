@@ -5,6 +5,7 @@ import {
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { signOut } from 'firebase/auth';
 import { auth } from '../firebaseConfig';
@@ -28,6 +29,13 @@ export default function RoleSelectScreen({ navigation }: any) {
 
   const handleRoleSelect = (roleId: string) => {
     if (roleId === 'glider_pilot') {
+      if (member?.isOnNoTowList) {
+        Alert.alert(
+          'No Tow',
+          'Your account is currently flagged NO TOW. To clear or if you believe this is in error, contact Administration at admin@texassoaring.org.'
+        );
+        return;
+      }
       navigation.navigate('MyTicket');
     }
     if (roleId === 'tow_pilot') {
