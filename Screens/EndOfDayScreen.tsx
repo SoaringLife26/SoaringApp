@@ -23,6 +23,14 @@ import {
 import { db } from '../firebaseConfig';
 import { useMember } from '../context/MemberContext';
 
+// A tenth of an hour is 6 minutes — always round up, never down, per club billing rules.
+function computeSystemFlightTime(flight: any): number | null {
+  if (!flight.takeoffTime || !flight.landingTime) return null;
+  const minutes = (flight.landingTime.toMillis() - flight.takeoffTime.toMillis()) / 60000;
+  if (minutes <= 0) return null;
+  return Math.ceil(minutes / 6) / 10;
+}
+
 export default function EndOfDayScreen({ navigation }: any) {
   const { member } = useMember();
   const [allFlights, setAllFlights] = useState<any[]>([]);
@@ -30,6 +38,7 @@ export default function EndOfDayScreen({ navigation }: any) {
   const [closingDay, setClosingDay] = useState(false);
   const [closingNote, setClosingNote] = useState('');
   const [showCloseConfirm, setShowCloseConfirm] = useState(false);
+  const [clearFlightTimes, setClearFlightTimes] = useState<Record<string, string>>({});
 
   // Get today's date range
   const getTodayRange = () => {
@@ -80,7 +89,7 @@ export default function EndOfDayScreen({ navigation }: any) {
 
   const canCloseDay = pendingFlights.length === 0 && allFlights.length > 0;
 
-  const handleManualClear = async (flight: any) => {
+  const handleManualClear = async (flight: any, flightTimeOverride?: number) => {
     Alert.alert(
       'Confirm Pilot Safe',
       `Confirm ${flight.pilotName || flight.displayShorthand} has returned safely?`,
@@ -90,12 +99,21 @@ export default function EndOfDayScreen({ navigation }: any) {
           text: 'Confirm Safe',
           onPress: async () => {
             try {
-              await updateDoc(doc(db, 'flights', flight.id), {
+              const updates: any = {
                 manualClearanceAt: serverTimestamp(),
                 manualClearedByUID: member?.uid,
                 status: 'complete',
                 updatedAt: serverTimestamp(),
-              });
+              };
+              // Club-glider rental time is billable — closing the flight out
+              // without capturing it is exactly how a tow gets billed but the
+              // rental doesn't. Only set when the caller resolved a value.
+              if (flightTimeOverride !== undefined) {
+                updates.pilotFlightTime = flightTimeOverride;
+                updates.pilotFlightTimeAt = serverTimestamp();
+                updates.flightTimeEnteredBy = 'line_chief_forced';
+              }
+              await updateDoc(doc(db, 'flights', flight.id), updates);
             } catch (error) {
               Alert.alert('Error', 'Could not clear flight.');
             }
@@ -103,6 +121,16 @@ export default function EndOfDayScreen({ navigation }: any) {
         },
       ]
     );
+  };
+
+  const handleForceClearWithTime = (flight: any) => {
+    const raw = clearFlightTimes[flight.id] ?? '';
+    const parsed = parseFloat(raw);
+    if (!raw || isNaN(parsed) || parsed <= 0) {
+      Alert.alert('Required', 'Please enter a valid flight time before clearing.');
+      return;
+    }
+    handleManualClear(flight, parsed);
   };
 
   const handleCloseDay = async () => {
@@ -186,32 +214,61 @@ export default function EndOfDayScreen({ navigation }: any) {
           {pendingFlights.length > 0 && (
             <>
               <Text style={styles.sectionTitle}>⚠️ Needs Attention</Text>
-              {pendingFlights.map((flight) => (
-                <View key={flight.id} style={styles.pendingCard}>
-                  <Text style={styles.flightLabel}>{getFlightLabel(flight)}</Text>
-                  <Text style={styles.flightType}>{getFlightType(flight)}</Text>
-                  <Text style={styles.flightStatus}>
-                    Status: {flight.status}
-                  </Text>
-                  {flight.status === 'airborne' && (
-                    <Text style={styles.flightWarning}>
-                      ⚠️ Still airborne — confirm pilot has landed
+              {pendingFlights.map((flight) => {
+                const missingFlightTime =
+                  flight.status === 'landed' && flight.gliderOwnership === 'club' && !flight.pilotFlightTime;
+                const inputValue =
+                  clearFlightTimes[flight.id] !== undefined
+                    ? clearFlightTimes[flight.id]
+                    : (computeSystemFlightTime(flight)?.toFixed(1) ?? '');
+
+                return (
+                  <View key={flight.id} style={styles.pendingCard}>
+                    <Text style={styles.flightLabel}>{getFlightLabel(flight)}</Text>
+                    <Text style={styles.flightType}>{getFlightType(flight)}</Text>
+                    <Text style={styles.flightStatus}>
+                      Status: {flight.status}
                     </Text>
-                  )}
-                  {flight.status === 'landed' && flight.gliderOwnership === 'club' && !flight.pilotFlightTime && (
-                    <Text style={styles.flightWarning}>
-                      ⚠️ Missing flight time entry
-                    </Text>
-                  )}
-                  <TouchableOpacity
-                    style={styles.clearButton}
-                    onPress={() => handleManualClear(flight)}>
-                    <Text style={styles.clearButtonText}>
-                      ✓ Confirm Pilot Returned Safely
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              ))}
+                    {flight.status === 'airborne' && (
+                      <Text style={styles.flightWarning}>
+                        ⚠️ Still airborne — confirm pilot has landed
+                      </Text>
+                    )}
+                    {missingFlightTime ? (
+                      <>
+                        <Text style={styles.flightWarning}>
+                          ⚠️ Missing flight time entry — billable rental time, don't clear without it
+                        </Text>
+                        <Text style={styles.clearTimeLabel}>Flight time (decimal hours)</Text>
+                        <TextInput
+                          style={styles.clearTimeInput}
+                          placeholder="e.g. 0.5"
+                          value={inputValue}
+                          onChangeText={(val) =>
+                            setClearFlightTimes((prev) => ({ ...prev, [flight.id]: val }))
+                          }
+                          keyboardType="decimal-pad"
+                        />
+                        <TouchableOpacity
+                          style={styles.clearButton}
+                          onPress={() => handleForceClearWithTime(flight)}>
+                          <Text style={styles.clearButtonText}>
+                            ✓ Clear With This Flight Time
+                          </Text>
+                        </TouchableOpacity>
+                      </>
+                    ) : (
+                      <TouchableOpacity
+                        style={styles.clearButton}
+                        onPress={() => handleManualClear(flight)}>
+                        <Text style={styles.clearButtonText}>
+                          ✓ Confirm Pilot Returned Safely
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                );
+              })}
             </>
           )}
 
@@ -408,6 +465,21 @@ const styles = StyleSheet.create({
   flightWarning: {
     fontSize: 13,
     color: '#E65100',
+    marginBottom: 8,
+  },
+  clearTimeLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 6,
+  },
+  clearTimeInput: {
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    padding: 10,
+    fontSize: 16,
     marginBottom: 8,
   },
   flightTime: {

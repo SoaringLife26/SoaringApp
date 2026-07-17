@@ -24,6 +24,14 @@ import {
 import { db } from '../firebaseConfig';
 import { useMember } from '../context/MemberContext';
 
+// A tenth of an hour is 6 minutes — always round up, never down, per club billing rules.
+function computeSystemFlightTime(flight: any): number | null {
+  if (!flight.takeoffTime || !flight.landingTime) return null;
+  const minutes = (flight.landingTime.toMillis() - flight.takeoffTime.toMillis()) / 60000;
+  if (minutes <= 0) return null;
+  return Math.ceil(minutes / 6) / 10;
+}
+
 export default function MyTicketScreen({ navigation }: any) {
   const { member } = useMember();
   const [activeFlights, setActiveFlights] = useState<any[]>([]);
@@ -53,6 +61,22 @@ export default function MyTicketScreen({ navigation }: any) {
 
     return unsubscribe;
   }, [member?.uid]);
+
+  // Pre-fill the flight-time box with the line-chief-witnessed system time
+  // (landing minus takeoff) so the pilot is confirming a number, not doing
+  // the rounding math themselves. Only pre-fills once, so it doesn't stomp
+  // on an in-progress edit.
+  useEffect(() => {
+    if (flightTime) return;
+    const flightNeedingTime = activeFlights.find(
+      (f) => f.status === 'landed' && f.gliderOwnership === 'club' && !f.pilotFlightTime
+    );
+    if (!flightNeedingTime) return;
+    const systemTime = computeSystemFlightTime(flightNeedingTime);
+    if (systemTime !== null) {
+      setFlightTime(systemTime.toFixed(1));
+    }
+  }, [activeFlights]);
 
   const handleLogLanding = async (flight: any) => {
     Alert.alert(
@@ -243,7 +267,7 @@ export default function MyTicketScreen({ navigation }: any) {
               {needsFlightTime && (
                 <View style={styles.timeEntry}>
                   <Text style={styles.timeLabel}>
-                    Enter your flight time (decimal hours e.g. 0.5)
+                    Confirm your flight time (from the logged landing — edit if it looks wrong)
                   </Text>
                   <TextInput
                     style={styles.timeInput}
