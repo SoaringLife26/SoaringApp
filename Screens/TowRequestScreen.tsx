@@ -7,10 +7,14 @@ import {
   StyleSheet,
   ScrollView,
   Alert,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
-import { collection, addDoc, serverTimestamp, getDocs, query, where, orderBy, onSnapshot, doc } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, getDocs, query, where, orderBy } from 'firebase/firestore';
 import { db } from '../firebaseConfig';
 import { useMember } from '../context/MemberContext';
+import { useGlobalSettings } from '../context/GlobalSettingsContext';
+import { getDaysSinceLastFlight, isCurrent, hasActiveClearance, fileClearanceRequest } from '../lib/currency';
 import { Picker } from '@react-native-picker/picker';
 
 const TOW_CATEGORIES = [
@@ -28,9 +32,9 @@ const TRAINING_MANEUVERS = [
 
 export default function TowRequestScreen({ navigation }: any) {
   const { member } = useMember();
+  const { lineChiefMode } = useGlobalSettings();
   const [clubGliders, setClubGliders] = useState<any[]>([]);
   const [glidersLoading, setGlidersLoading] = useState(true);
-  const [lineChiefMode, setLineChiefMode] = useState(true);
   const [gliderPath, setGliderPath] = useState<'club' | 'private' | 'other'>('club');
   const [selectedGlider, setSelectedGlider] = useState<any>(null);
   const [otherGliderDesc, setOtherGliderDesc] = useState('');
@@ -71,19 +75,6 @@ export default function TowRequestScreen({ navigation }: any) {
    fetchGliders();
   }, []);
 
-  // Listen to line chief mode
-  useEffect(() => {
-    const unsubscribe = onSnapshot(
-      doc(db, 'globalSettings', 'current'),
-      (snapshot) => {
-        if (snapshot.exists()) {
-          setLineChiefMode(snapshot.data().lineChiefMode ?? true);
-        }
-      }
-    );
-    return unsubscribe;
-  }, []);
-
   const selectedGliderIsTwoSeat =
     gliderPath === 'club' && selectedGlider?.isTwoSeat;
 
@@ -111,6 +102,35 @@ export default function TowRequestScreen({ navigation }: any) {
     if (isDual && !studentFlight && !passengerName) {
       Alert.alert('Required', 'Please enter passenger name');
       return;
+    }
+
+    // Glider currency check — club glider paths only (Path 1 / Path 3).
+    // Private-glider and borrowed-glider flights are not gated. See spec
+    // Section 15.
+    let flownWhileNotCurrent = false;
+    let daysSinceLastFlightAtSubmission: number | null = null;
+    if (gliderPath === 'club' && member?.uid) {
+      const daysSinceLastFlight = await getDaysSinceLastFlight(member.uid);
+      if (!isCurrent(daysSinceLastFlight)) {
+        if (lineChiefMode) {
+          const cleared = await hasActiveClearance(member.uid);
+          if (!cleared) {
+            await fileClearanceRequest(member.uid, member.displayName, daysSinceLastFlight);
+            Alert.alert(
+              'Currency Required',
+              daysSinceLastFlight === null
+                ? 'You have no flight on record in the last 90 days. You must be cleared by the Line Chief before submitting a tow request today.'
+                : `You have not flown a glider in ${daysSinceLastFlight} days. You must be cleared by the Line Chief before submitting a tow request today.`
+            );
+            return;
+          }
+        } else {
+          // No Line Chief present to grant clearance — don't strand the
+          // pilot. Let the request through and tag it for admin follow-up.
+          flownWhileNotCurrent = true;
+          daysSinceLastFlightAtSubmission = daysSinceLastFlight;
+        }
+      }
     }
 
     setSubmitting(true);
@@ -173,6 +193,12 @@ export default function TowRequestScreen({ navigation }: any) {
         missingFlightTime: false,
         postponeCount: 0,
         lineChiefPresent: lineChiefMode,
+
+        // Currency (Section 15) — no-line-chief exception tagging only;
+        // in line-chief mode a lapsed pilot is blocked before reaching
+        // this point.
+        flownWhileNotCurrent,
+        daysSinceLastFlightAtSubmission,
       });
 
       Alert.alert(
@@ -197,6 +223,9 @@ export default function TowRequestScreen({ navigation }: any) {
   };
 
   return (
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      style={{ flex: 1 }}>
     <ScrollView style={styles.container}>
       <TouchableOpacity
         style={styles.backButton}
@@ -417,6 +446,7 @@ export default function TowRequestScreen({ navigation }: any) {
 
       <View style={{ height: 60 }} />
     </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -487,6 +517,17 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '600',
   },
+  pickerContainer: {
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    marginBottom: 8,
+    overflow: 'hidden',
+  },
+  picker: {
+    height: 50,
+  },
   toggleRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -524,12 +565,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: 32,
   },
-  submitText: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-
   submitText: {
     color: '#fff',
     fontSize: 18,

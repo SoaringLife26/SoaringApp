@@ -8,6 +8,8 @@ import {
   ScrollView,
   Alert,
   Switch,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { collection, addDoc, serverTimestamp, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../firebaseConfig';
@@ -154,6 +156,9 @@ export default function DemoRideScreen({ navigation }: any) {
   const passengerFullName = `${passengerFirstName} ${passengerLastName}`.trim();
 
   return (
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      style={{ flex: 1 }}>
     <ScrollView style={styles.container}>
       <TouchableOpacity
         style={styles.backButton}
@@ -269,6 +274,7 @@ export default function DemoRideScreen({ navigation }: any) {
 
       <View style={{ height: 60 }} />
     </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 

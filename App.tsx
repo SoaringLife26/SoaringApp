@@ -1,8 +1,10 @@
 import 'react-native-gesture-handler';
 import React from 'react';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { MemberProvider, useMember } from './context/MemberContext';
+import { GlobalSettingsProvider } from './context/GlobalSettingsContext';
 import { ActivityIndicator, View } from 'react-native';
 import LoginScreen from './Screens/LoginScreen';
 import RoleSelectScreen from './Screens/RoleSelectScreen';
@@ -12,6 +14,7 @@ import LineChiefScreen from './Screens/LineChiefScreen';
 import MyTicketScreen from './Screens/MyTicketScreen';
 import DemoRideScreen from './Screens/DemoRideScreen';
 import EndOfDayScreen from './Screens/EndOfDayScreen';
+import ChangePasswordScreen from './Screens/ChangePasswordScreen';
 
 
 const Stack = createStackNavigator();
@@ -39,6 +42,7 @@ function AppNavigator() {
             <Stack.Screen name="MyTicket" component={MyTicketScreen} />
             <Stack.Screen name="DemoRide" component={DemoRideScreen} />
             <Stack.Screen name="EndOfDay" component={EndOfDayScreen} />
+            <Stack.Screen name="ChangePassword" component={ChangePasswordScreen} />
           </>
         ) : (
           <Stack.Screen name="Login" component={LoginScreen} />
@@ -50,8 +54,12 @@ function AppNavigator() {
 
 export default function App() {
   return (
-    <MemberProvider>
-      <AppNavigator />
-    </MemberProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <MemberProvider>
+        <GlobalSettingsProvider>
+          <AppNavigator />
+        </GlobalSettingsProvider>
+      </MemberProvider>
+    </GestureHandlerRootView>
   );
 }

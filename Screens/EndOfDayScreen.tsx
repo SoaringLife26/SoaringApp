@@ -8,6 +8,8 @@ import {
   Alert,
   ActivityIndicator,
   TextInput,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import {
   collection,
@@ -176,6 +178,9 @@ export default function EndOfDayScreen({ navigation }: any) {
   };
 
   return (
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      style={{ flex: 1 }}>
     <ScrollView style={styles.container}>
       <TouchableOpacity
         style={styles.backButton}
@@ -339,6 +344,7 @@ export default function EndOfDayScreen({ navigation }: any) {
 
       <View style={{ height: 60 }} />
     </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 

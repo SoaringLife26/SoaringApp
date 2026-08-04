@@ -4,10 +4,14 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
-  ScrollView,
+  FlatList,
+  TextInput,
   Alert,
   ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
+import DraggableFlatList, { RenderItemParams, ScaleDecorator } from 'react-native-draggable-flatlist';
 import {
   collection,
   query,
@@ -18,35 +22,70 @@ import {
   serverTimestamp,
   orderBy,
   getDocs,
+  writeBatch,
 } from 'firebase/firestore';
 
 import { db } from '../firebaseConfig';
 import { useMember } from '../context/MemberContext';
+import { useGlobalSettings } from '../context/GlobalSettingsContext';
+import { grantClearance, ClearanceReason } from '../lib/currency';
+
+const REASON_OPTIONS: { id: ClearanceReason; label: string; requiresNote: boolean }[] = [
+  { id: 'instructor_flight', label: 'Flying with an instructor', requiresNote: false },
+  { id: 'waived_experienced', label: 'Waived — experienced pilot', requiresNote: true },
+  { id: 'waived_verified_elsewhere', label: 'Waived — verified current at another club', requiresNote: true },
+];
+
+function getCardColor(flight: any) {
+  if (flight.flightCategory === 'aero_retrieve') return '#FCE4EC';
+  if (!flight.lineChiefPresent) return '#E3F2FD';
+  if (flight.gliderOwnership === 'private' ||
+      flight.gliderOwnership === 'private_other') return '#FFF8E1';
+  if (flight.isDemoRide) return '#E8F5E9';
+  return '#FFFFFF';
+}
+
+function getTimeAloft(takeoffMillis: number | null, now: number) {
+  if (!takeoffMillis) return '';
+  const minutes = Math.floor((now - takeoffMillis) / 60000);
+  if (minutes < 1) return '<1 min';
+  if (minutes < 60) return `${minutes} min`;
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+}
 
 export default function LineChiefScreen({ navigation }: any) {
   const { member } = useMember();
+  const { lineChiefMode, activeTowPlaneId } = useGlobalSettings();
+
   const [pendingFlights, setPendingFlights] = useState<any[]>([]);
   const [airborneFlights, setAirborneFlights] = useState<any[]>([]);
   const [towPlanes, setTowPlanes] = useState<any[]>([]);
+  const [clearanceRequests, setClearanceRequests] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [lineChiefMode, setLineChiefMode] = useState(true);
-  const [activeTowPlaneId, setActiveTowPlaneId] = useState('');
-  const [landingAdjustFlight, setLandingAdjustFlight] = useState<any>(null);
+  const [now, setNow] = useState(Date.now());
+
+  const [expandedFlightId, setExpandedFlightId] = useState<string | null>(null);
   const [landingProposedTime, setLandingProposedTime] = useState<Date | null>(null);
   const [landingOffset, setLandingOffset] = useState(0);
 
-  // Fetch tow planes
+  const [expandedRequestId, setExpandedRequestId] = useState<string | null>(null);
+  const [selectedReason, setSelectedReason] = useState<ClearanceReason | null>(null);
+  const [reasonNote, setReasonNote] = useState('');
+  const [grantingClearance, setGrantingClearance] = useState(false);
+
+  // Live "time aloft" on airborne cards — ticks without any Firestore reads.
+  useEffect(() => {
+    const interval = setInterval(() => setNow(Date.now()), 30000);
+    return () => clearInterval(interval);
+  }, []);
+
   useEffect(() => {
     const fetchTowPlanes = async () => {
       try {
         const snapshot = await getDocs(
           query(collection(db, 'towPlanes'), where('isActive', '==', true))
         );
-        const planes = snapshot.docs.map(d => ({
-          id: d.id,
-          ...d.data(),
-        }));
-        setTowPlanes(planes);
+        setTowPlanes(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
       } catch (error) {
         console.error('Error fetching tow planes:', error);
       }
@@ -54,7 +93,6 @@ export default function LineChiefScreen({ navigation }: any) {
     fetchTowPlanes();
   }, []);
 
-  // Real-time listener for pending flights
   useEffect(() => {
     const q = query(
       collection(db, 'flights'),
@@ -62,43 +100,31 @@ export default function LineChiefScreen({ navigation }: any) {
       orderBy('queuePosition', 'asc')
     );
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const flights = snapshot.docs.map(d => ({
-        id: d.id,
-        ...d.data(),
-      }));
-      setPendingFlights(flights);
+      setPendingFlights(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
       setLoading(false);
     });
     return unsubscribe;
   }, []);
 
-  // Real-time listener for airborne flights
   useEffect(() => {
-    const q = query(
-      collection(db, 'flights'),
-      where('status', '==', 'airborne')
-    );
+    const q = query(collection(db, 'flights'), where('status', '==', 'airborne'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const flights = snapshot.docs.map(d => ({
-        id: d.id,
-        ...d.data(),
-      }));
-      setAirborneFlights(flights);
+      setAirborneFlights(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
     });
     return unsubscribe;
   }, []);
 
-  // Listen to global settings
+  // Currency clearance requests — Section 15.4. Any active member can read
+  // and resolve these today (firestore.rules); see spec Section 15.7 for
+  // the open item on gating Line Chief access itself.
   useEffect(() => {
-    const unsubscribe = onSnapshot(
-      doc(db, 'globalSettings', 'current'),
-      (snapshot) => {
-        if (snapshot.exists()) {
-          setLineChiefMode(snapshot.data().lineChiefMode ?? true);
-          setActiveTowPlaneId(snapshot.data().activeTowPlaneId || '');
-        }
-      }
+    const q = query(
+      collection(db, 'currencyClearanceRequests'),
+      where('status', '==', 'pending')
     );
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setClearanceRequests(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
     return unsubscribe;
   }, []);
 
@@ -149,7 +175,7 @@ export default function LineChiefScreen({ navigation }: any) {
     );
   };
 
-const handleMoveUp = async (flight: any) => {
+  const handleMoveUp = async (flight: any) => {
     const index = pendingFlights.findIndex(f => f.id === flight.id);
     if (index <= 0) return;
     try {
@@ -185,32 +211,90 @@ const handleMoveUp = async (flight: any) => {
     }
   };
 
+  // Drag-and-drop reorder (Section 6.9) — the whole visible order is
+  // renumbered and committed as one batched write on drop, not per frame
+  // during the drag, so the live onSnapshot listener isn't fighting the
+  // gesture mid-drag. Up/Down (above) remain for precise single-position
+  // moves.
+  const handleDragEnd = async ({ data }: { data: any[] }) => {
+    setPendingFlights(data);
+    try {
+      const batch = writeBatch(db);
+      data.forEach((flight, index) => {
+        batch.update(doc(db, 'flights', flight.id), {
+          queuePosition: index,
+          updatedAt: serverTimestamp(),
+        });
+      });
+      await batch.commit();
+    } catch (error) {
+      Alert.alert('Error', 'Could not save new queue order.');
+    }
+  };
 
-  const handleLogLanding = async (flight: any) => {
-    // Show adjustment panel instead of committing immediately
-    setLandingAdjustFlight(flight);
+  const handleTapAirborneCard = (flightId: string) => {
+    if (expandedFlightId === flightId) {
+      setExpandedFlightId(null);
+      setLandingProposedTime(null);
+      setLandingOffset(0);
+      return;
+    }
+    setExpandedFlightId(flightId);
     setLandingProposedTime(new Date());
     setLandingOffset(0);
   };
 
-  const handleConfirmLanding = async () => {
-    if (!landingAdjustFlight || !landingProposedTime) return;
+  const handleConfirmLanding = async (flight: any) => {
+    if (!landingProposedTime) return;
     try {
-      const adjustedTime = new Date(
-        landingProposedTime.getTime() + landingOffset * 60000
-      );
-      await updateDoc(doc(db, 'flights', landingAdjustFlight.id), {
+      const adjustedTime = new Date(landingProposedTime.getTime() + landingOffset * 60000);
+      await updateDoc(doc(db, 'flights', flight.id), {
         status: 'landed',
         landingTime: adjustedTime,
         landingTimeOffsetMin: landingOffset,
         landingLoggedBy: 'line_chief',
         updatedAt: serverTimestamp(),
       });
-      setLandingAdjustFlight(null);
+      setExpandedFlightId(null);
       setLandingProposedTime(null);
       setLandingOffset(0);
     } catch (error) {
       Alert.alert('Error', 'Could not log landing.');
+    }
+  };
+
+  const handleTapClearanceCard = (requestId: string) => {
+    if (expandedRequestId === requestId) {
+      setExpandedRequestId(null);
+      setSelectedReason(null);
+      setReasonNote('');
+      return;
+    }
+    setExpandedRequestId(requestId);
+    setSelectedReason(null);
+    setReasonNote('');
+  };
+
+  const handleGrantClearance = async (request: any) => {
+    if (!selectedReason) {
+      Alert.alert('Required', 'Please select a reason.');
+      return;
+    }
+    const reasonMeta = REASON_OPTIONS.find(r => r.id === selectedReason);
+    if (reasonMeta?.requiresNote && !reasonNote.trim()) {
+      Alert.alert('Required', 'Please add a note for this reason.');
+      return;
+    }
+    setGrantingClearance(true);
+    try {
+      await grantClearance(request.id, member?.uid || '', selectedReason, reasonNote.trim() || null);
+      setExpandedRequestId(null);
+      setSelectedReason(null);
+      setReasonNote('');
+    } catch (error) {
+      Alert.alert('Error', 'Could not grant clearance.');
+    } finally {
+      setGrantingClearance(false);
     }
   };
 
@@ -226,8 +310,10 @@ const handleMoveUp = async (flight: any) => {
     return badges[towType] || towType;
   };
 
- return (
-      <ScrollView style={styles.container}>
+  return (
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      style={styles.container}>
       <TouchableOpacity
         style={styles.backButton}
         onPress={() => navigation.goBack()}>
@@ -236,12 +322,10 @@ const handleMoveUp = async (flight: any) => {
 
       <Text style={styles.title}>Line Chief</Text>
       <Text style={styles.subtitle}>{member?.displayName}</Text>
-      {/* No line chief mode banner */}
+
       {!lineChiefMode && (
         <View style={styles.noLCBanner}>
-          <Text style={styles.noLCBannerText}>
-            ✈️ No Line Chief Mode Active
-          </Text>
+          <Text style={styles.noLCBannerText}>✈️ No Line Chief Mode Active</Text>
           <Text style={styles.noLCBannerSubtext}>
             Queue is read-only. Pilots are self-logging.
           </Text>
@@ -253,142 +337,197 @@ const handleMoveUp = async (flight: any) => {
         onPress={() => navigation.navigate('EndOfDay')}>
         <Text style={styles.endOfDayText}>📋 End of Day Checklist</Text>
       </TouchableOpacity>
-      
-      {/* Landing Time Adjustment Panel */}
-      {landingAdjustFlight && landingProposedTime && (
-        <View style={styles.adjustPanel}>
-          <Text style={styles.adjustTitle}>
-            🛬 Log Landing — {landingAdjustFlight.displayShorthand}
+
+      {clearanceRequests.length > 0 && (
+        <View style={styles.clearanceSection}>
+          <Text style={styles.clearanceSectionTitle}>
+            ⚠️ Currency Clearance Needed ({clearanceRequests.length})
           </Text>
-          <Text style={styles.adjustRecorded}>
-            Recorded: {landingProposedTime.toLocaleTimeString()}
-          </Text>
-          <Text style={styles.adjustLabel}>
-            Adjust if you tapped late or early:
-          </Text>
-          <View style={styles.adjustButtons}>
-            {[-5, -3, -1, 0, 1, 3, 5].map((offset) => (
-              <TouchableOpacity
-                key={offset}
-                style={[
-                  styles.adjustButton,
-                  landingOffset === offset && styles.adjustButtonSelected,
-                ]}
-                onPress={() => setLandingOffset(offset)}>
-                <Text style={[
-                  styles.adjustButtonText,
-                  landingOffset === offset && styles.adjustButtonTextSelected,
-                ]}>
-                  {offset === 0 ? '0' : offset > 0 ? `+${offset}` : `${offset}`}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-          {landingOffset !== 0 && (
-            <Text style={styles.adjustResult}>
-              Final time: {new Date(
-                landingProposedTime.getTime() + landingOffset * 60000
-              ).toLocaleTimeString()}
-            </Text>
-          )}
-          <View style={styles.adjustConfirmRow}>
-            <TouchableOpacity
-              style={styles.adjustCancelButton}
-              onPress={() => {
-                setLandingAdjustFlight(null);
-                setLandingProposedTime(null);
-                setLandingOffset(0);
-              }}>
-              <Text style={styles.adjustCancelText}>Cancel</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.adjustConfirmButton}
-              onPress={handleConfirmLanding}>
-              <Text style={styles.adjustConfirmText}>Confirm Landing</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      )}
-      
-      {/* Airborne List */}
-      {airborneFlights.length > 0 && (
-        <>
-          <Text style={styles.sectionTitle}>
-            ✈️ Airborne ({airborneFlights.length})
-          </Text>
-          {airborneFlights.map((flight) => (
-            <View key={flight.id} style={[styles.airborneCard, { backgroundColor: getCardColor(flight) }]}>
-              <View style={styles.airborneHeader}>
-                <Text style={styles.airborneGlider}>
-                  {flight.displayShorthand}
-                </Text>
-                {flight.towPlaneNNumber && (
-                  <Text style={styles.towPlaneTag}>
-                    {flight.towPlaneNNumber}
-                  </Text>
+          {clearanceRequests.map((request) => {
+            const expanded = expandedRequestId === request.id;
+            const detail = (request.daysSinceLastFlight === null || request.daysSinceLastFlight === undefined)
+              ? 'No flight on record'
+              : `${request.daysSinceLastFlight} days since last flight`;
+
+            if (!expanded) {
+              return (
+                <TouchableOpacity
+                  key={request.id}
+                  style={styles.clearanceCardCompact}
+                  onPress={() => handleTapClearanceCard(request.id)}>
+                  <Text style={styles.clearanceCardName}>{request.pilotName}</Text>
+                  <Text style={styles.clearanceCardDetail}>{detail}</Text>
+                </TouchableOpacity>
+              );
+            }
+
+            const reasonMeta = REASON_OPTIONS.find(r => r.id === selectedReason);
+
+            return (
+              <View key={request.id} style={styles.clearanceCardExpanded}>
+                <Text style={styles.clearanceCardName}>{request.pilotName}</Text>
+                <Text style={styles.clearanceCardDetail}>{detail}</Text>
+                {REASON_OPTIONS.map((option) => (
+                  <TouchableOpacity
+                    key={option.id}
+                    style={[styles.reasonButton, selectedReason === option.id && styles.reasonButtonSelected]}
+                    onPress={() => setSelectedReason(option.id)}>
+                    <Text style={[styles.reasonButtonText, selectedReason === option.id && styles.reasonButtonTextSelected]}>
+                      {option.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+                {reasonMeta?.requiresNote && (
+                  <TextInput
+                    style={styles.reasonNoteInput}
+                    placeholder="Note (required for this reason)"
+                    value={reasonNote}
+                    onChangeText={setReasonNote}
+                    multiline
+                  />
                 )}
+                <TouchableOpacity
+                  style={styles.grantButton}
+                  onPress={() => handleGrantClearance(request)}
+                  disabled={grantingClearance}>
+                  <Text style={styles.grantButtonText}>
+                    {grantingClearance ? 'Granting...' : 'Grant Clearance for Today'}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => handleTapClearanceCard(request.id)}>
+                  <Text style={styles.clearanceCancelText}>Cancel</Text>
+                </TouchableOpacity>
               </View>
-              <Text style={styles.airborneType}>
-                {getTowTypeBadge(flight.towType)}
-              </Text>
-              <TouchableOpacity
-                style={styles.landingButton}
-                onPress={() => handleLogLanding(flight)}>
-                <Text style={styles.landingButtonText}>🛬 Log Landing</Text>
-              </TouchableOpacity>
-            </View>
-          ))}
-        </>
-      )}
-
-      {/* Pending Queue */}
-      <Text style={styles.sectionTitle}>
-        📋 Pending Queue ({pendingFlights.length})
-      </Text>
-
-      {loading ? (
-        <ActivityIndicator size="large" color="#1A4E8C" style={{ marginTop: 40 }} />
-      ) : pendingFlights.length === 0 ? (
-        <View style={styles.emptyState}>
-          <Text style={styles.emptyText}>No pending tow requests</Text>
+            );
+          })}
         </View>
-      ) : (
-        pendingFlights.map((flight, index) => (
-          <FlightCard
-            key={flight.id}
-            flight={flight}
-            towPlanes={towPlanes}
-            activeTowPlaneId={activeTowPlaneId}
-            onCertify={handleCertify}
-            onWheelsUp={handleWheelsUp}
-            getTowTypeBadge={getTowTypeBadge}
-            onMoveUp={handleMoveUp}
-            onMoveDown={handleMoveDown}
-            isFirst={index === 0}
-            isLast={index === pendingFlights.length - 1}
-          />
-        ))
       )}
-      <View style={{ height: 60 }} />
-    </ScrollView>
-     );
+
+      {/* Split pane — Pending Queue (top, weighted larger) / Airborne (bottom) */}
+      <View style={styles.splitContainer}>
+        <View style={styles.queuePane}>
+          <Text style={styles.sectionTitle}>📋 Pending Queue ({pendingFlights.length})</Text>
+          {loading ? (
+            <ActivityIndicator size="large" color="#1A4E8C" style={{ marginTop: 40 }} />
+          ) : pendingFlights.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Text style={styles.emptyText}>No pending tow requests</Text>
+            </View>
+          ) : (
+            <DraggableFlatList
+              data={pendingFlights}
+              keyExtractor={(item: any) => item.id}
+              onDragEnd={handleDragEnd}
+              contentContainerStyle={{ paddingBottom: 20 }}
+              renderItem={({ item, drag, isActive, getIndex }: RenderItemParams<any>) => {
+                const index = getIndex() ?? 0;
+                return (
+                  <ScaleDecorator>
+                    <FlightCard
+                      flight={item}
+                      towPlanes={towPlanes}
+                      activeTowPlaneId={activeTowPlaneId}
+                      onCertify={handleCertify}
+                      onWheelsUp={handleWheelsUp}
+                      getTowTypeBadge={getTowTypeBadge}
+                      onMoveUp={handleMoveUp}
+                      onMoveDown={handleMoveDown}
+                      isFirst={index === 0}
+                      isLast={index === pendingFlights.length - 1}
+                      onDragHandleLongPress={drag}
+                      isDragging={isActive}
+                    />
+                  </ScaleDecorator>
+                );
+              }}
+            />
+          )}
+        </View>
+
+        <View style={styles.airbornePane}>
+          <Text style={styles.sectionTitle}>✈️ Airborne ({airborneFlights.length})</Text>
+          {airborneFlights.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Text style={styles.emptyText}>No gliders airborne</Text>
+            </View>
+          ) : (
+            <FlatList
+              data={airborneFlights}
+              keyExtractor={(item: any) => item.id}
+              contentContainerStyle={{ paddingBottom: 20 }}
+              renderItem={({ item }) => {
+                const expanded = expandedFlightId === item.id;
+                const aloft = getTimeAloft(item.takeoffTime?.toMillis?.() ?? null, now);
+
+                if (!expanded) {
+                  return (
+                    <TouchableOpacity
+                      style={[styles.airborneCardCompact, { backgroundColor: getCardColor(item) }]}
+                      onPress={() => handleTapAirborneCard(item.id)}>
+                      <Text style={styles.airborneGlider}>{item.displayShorthand}</Text>
+                      <Text style={styles.airborneTimeAloft}>{aloft}</Text>
+                    </TouchableOpacity>
+                  );
+                }
+
+                return (
+                  <View style={[styles.airborneCardExpanded, { backgroundColor: getCardColor(item) }]}>
+                    <Text style={styles.airborneGlider}>{item.displayShorthand}</Text>
+                    <Text style={styles.airborneTimeAloft}>Aloft {aloft}</Text>
+                    {landingProposedTime && (
+                      <>
+                        <Text style={styles.adjustRecorded}>
+                          Recorded: {landingProposedTime.toLocaleTimeString()}
+                        </Text>
+                        <Text style={styles.adjustLabel}>Adjust if you tapped late or early:</Text>
+                        <View style={styles.adjustButtons}>
+                          {[-5, -3, -1, 0, 1, 3, 5].map((offset) => (
+                            <TouchableOpacity
+                              key={offset}
+                              style={[styles.adjustButton, landingOffset === offset && styles.adjustButtonSelected]}
+                              onPress={() => setLandingOffset(offset)}>
+                              <Text style={[styles.adjustButtonText, landingOffset === offset && styles.adjustButtonTextSelected]}>
+                                {offset === 0 ? '0' : offset > 0 ? `+${offset}` : `${offset}`}
+                              </Text>
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                        {landingOffset !== 0 && (
+                          <Text style={styles.adjustResult}>
+                            Final time: {new Date(landingProposedTime.getTime() + landingOffset * 60000).toLocaleTimeString()}
+                          </Text>
+                        )}
+                        <View style={styles.adjustConfirmRow}>
+                          <TouchableOpacity
+                            style={styles.adjustCancelButton}
+                            onPress={() => handleTapAirborneCard(item.id)}>
+                            <Text style={styles.adjustCancelText}>Cancel</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={styles.adjustConfirmButton}
+                            onPress={() => handleConfirmLanding(item)}>
+                            <Text style={styles.adjustConfirmText}>🛬 Confirm Landing</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </>
+                    )}
+                  </View>
+                );
+              }}
+            />
+          )}
+        </View>
+      </View>
+    </KeyboardAvoidingView>
+  );
 }
 
-function getCardColor(flight: any) {
-  if (flight.flightCategory === 'aero_retrieve') return '#FCE4EC';
-  if (!flight.lineChiefPresent) return '#E3F2FD';
-  if (flight.gliderOwnership === 'private' ||
-      flight.gliderOwnership === 'private_other') return '#FFF8E1';
-  if (flight.isDemoRide) return '#E8F5E9';
-  return '#FFFFFF';
-
-}
-
-
-function FlightCard({ flight, towPlanes, activeTowPlaneId, onCertify, onWheelsUp, getTowTypeBadge, onMoveUp, onMoveDown, isFirst, isLast }: any) {
+function FlightCard({
+  flight, towPlanes, activeTowPlaneId, onCertify, onWheelsUp, getTowTypeBadge,
+  onMoveUp, onMoveDown, isFirst, isLast, onDragHandleLongPress, isDragging,
+}: any) {
   const [selectedTowPlane, setSelectedTowPlane] = useState('');
 
-  // Auto-select from active tow pilot session or single plane
   useEffect(() => {
     if (activeTowPlaneId) {
       setSelectedTowPlane(activeTowPlaneId);
@@ -398,14 +537,19 @@ function FlightCard({ flight, towPlanes, activeTowPlaneId, onCertify, onWheelsUp
   }, [towPlanes, activeTowPlaneId]);
 
   return (
-    <View style={[styles.flightCard, { backgroundColor: getCardColor(flight) }]}>
+    <View style={[styles.flightCard, { backgroundColor: getCardColor(flight) }, isDragging && styles.flightCardDragging]}>
+      <TouchableOpacity
+        style={styles.dragHandle}
+        onLongPress={onDragHandleLongPress}
+        delayLongPress={150}>
+        <Text style={styles.dragHandleText}>⠿⠿ Hold to reorder</Text>
+      </TouchableOpacity>
+
       <Text style={styles.flightGlider}>{flight.displayShorthand}</Text>
       <Text style={styles.flightAltitude}>
         {flight.requestedAltitudeFt?.toLocaleString()} ft AGL
       </Text>
       <Text style={styles.flightType}>{getTowTypeBadge(flight.towType)}</Text>
-
-    
 
       <View style={styles.badgeRow}>
         {flight.studentFlight && (
@@ -426,6 +570,11 @@ function FlightCard({ flight, towPlanes, activeTowPlaneId, onCertify, onWheelsUp
         {flight.isDemoRide && (
           <View style={[styles.badge, styles.badgeDemoRide]}>
             <Text style={styles.badgeText}>DEMO RIDE</Text>
+          </View>
+        )}
+        {flight.flownWhileNotCurrent && (
+          <View style={[styles.badge, styles.badgeCurrency]}>
+            <Text style={styles.badgeText}>NOT CURRENT</Text>
           </View>
         )}
       </View>
@@ -487,7 +636,6 @@ function FlightCard({ flight, towPlanes, activeTowPlaneId, onCertify, onWheelsUp
         </View>
       )}
 
-      {/* Queue reorder buttons — only for pending flights */}
       {flight.status === 'pending' && (
         <View style={styles.reorderRow}>
           <Text style={styles.reorderLabel}>Move in queue:</Text>
@@ -513,10 +661,10 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f0f4f8',
-    padding: 24,
+    paddingHorizontal: 24,
+    paddingTop: 60,
   },
   backButton: {
-    marginTop: 60,
     marginBottom: 8,
   },
   backText: {
@@ -532,7 +680,7 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: 16,
     color: '#666',
-    marginBottom: 24,
+    marginBottom: 16,
   },
   noLCBanner: {
     backgroundColor: '#FFF3E0',
@@ -540,7 +688,7 @@ const styles = StyleSheet.create({
     borderColor: '#FF9800',
     borderRadius: 8,
     padding: 12,
-    marginBottom: 16,
+    marginBottom: 12,
   },
   noLCBannerText: {
     fontSize: 15,
@@ -552,57 +700,244 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#BF360C',
   },
-  sectionTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#1A4E8C',
+  endOfDayButton: {
+    backgroundColor: '#1A4E8C',
+    borderRadius: 8,
+    padding: 10,
+    alignItems: 'center',
     marginBottom: 12,
+  },
+  endOfDayText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  clearanceSection: {
+    marginBottom: 12,
+  },
+  clearanceSectionTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#E65100',
+    marginBottom: 8,
+  },
+  clearanceCardCompact: {
+    backgroundColor: '#FFF3E0',
+    borderWidth: 1,
+    borderColor: '#FF9800',
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 8,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  clearanceCardExpanded: {
+    backgroundColor: '#FFF3E0',
+    borderWidth: 1,
+    borderColor: '#FF9800',
+    borderRadius: 10,
+    padding: 14,
+    marginBottom: 8,
+  },
+  clearanceCardName: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#333',
+  },
+  clearanceCardDetail: {
+    fontSize: 13,
+    color: '#888',
+  },
+  reasonButton: {
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    padding: 10,
     marginTop: 8,
   },
-  airborneCard: {
-    backgroundColor: '#E3F2FD',
+  reasonButtonSelected: {
+    backgroundColor: '#1A4E8C',
+    borderColor: '#1A4E8C',
+  },
+  reasonButtonText: {
+    fontSize: 14,
+    color: '#333',
+  },
+  reasonButtonTextSelected: {
+    color: '#fff',
+    fontWeight: '600',
+  },
+  reasonNoteInput: {
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    padding: 10,
+    marginTop: 8,
+    minHeight: 50,
+    fontSize: 14,
+  },
+  grantButton: {
+    backgroundColor: '#2E7D32',
+    padding: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginTop: 12,
+  },
+  grantButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  clearanceCancelText: {
+    color: '#888',
+    fontSize: 13,
+    textAlign: 'center',
+    marginTop: 10,
+  },
+  splitContainer: {
+    flex: 1,
+  },
+  queuePane: {
+    flex: 3,
+    marginBottom: 8,
+  },
+  airbornePane: {
+    flex: 2,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#1A4E8C',
+    marginBottom: 8,
+  },
+  emptyState: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 24,
+    alignItems: 'center',
+  },
+  emptyText: {
+    fontSize: 15,
+    color: '#999',
+  },
+  airborneCardCompact: {
+    borderWidth: 1,
+    borderColor: '#1A4E8C',
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    marginBottom: 8,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  airborneGlider: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#1A4E8C',
+  },
+  airborneTimeAloft: {
+    fontSize: 14,
+    color: '#555',
+    fontWeight: '600',
+  },
+  airborneCardExpanded: {
     borderWidth: 1,
     borderColor: '#1A4E8C',
     borderRadius: 12,
     padding: 16,
-    marginBottom: 12,
+    marginBottom: 8,
   },
-  airborneHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  airborneGlider: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#1A4E8C',
-  },
-  towPlaneTag: {
-    fontSize: 13,
-    color: '#555',
-    backgroundColor: '#fff',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 4,
-    borderWidth: 1,
-    borderColor: '#ddd',
-  },
-  airborneType: {
+  adjustRecorded: {
     fontSize: 14,
     color: '#555',
-    marginBottom: 12,
+    marginTop: 8,
+    marginBottom: 4,
   },
-  landingButton: {
-    backgroundColor: '#1A4E8C',
-    padding: 12,
+  adjustLabel: {
+    fontSize: 13,
+    color: '#666',
+    marginBottom: 8,
+  },
+  adjustButtons: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 8,
+  },
+  adjustButton: {
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#ddd',
     borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    minWidth: 44,
     alignItems: 'center',
   },
-  landingButtonText: {
+  adjustButtonSelected: {
+    backgroundColor: '#1A4E8C',
+    borderColor: '#1A4E8C',
+  },
+  adjustButtonText: {
+    fontSize: 14,
+    color: '#333',
+    fontWeight: '600',
+  },
+  adjustButtonTextSelected: {
     color: '#fff',
-    fontSize: 15,
+  },
+  adjustResult: {
+    fontSize: 14,
+    color: '#1A4E8C',
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  adjustConfirmRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 8,
+  },
+  adjustCancelButton: {
+    flex: 1,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    padding: 12,
+    alignItems: 'center',
+  },
+  adjustCancelText: {
+    color: '#666',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  adjustConfirmButton: {
+    flex: 2,
+    backgroundColor: '#1A4E8C',
+    borderRadius: 8,
+    padding: 12,
+    alignItems: 'center',
+  },
+  adjustConfirmText: {
+    color: '#fff',
+    fontSize: 14,
     fontWeight: 'bold',
+  },
+  dragHandle: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#f0f4f8',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    marginBottom: 8,
+  },
+  dragHandleText: {
+    fontSize: 11,
+    color: '#999',
   },
   flightCard: {
     backgroundColor: '#fff',
@@ -610,7 +945,12 @@ const styles = StyleSheet.create({
     borderColor: '#ddd',
     borderRadius: 12,
     padding: 16,
-    marginBottom: 16,
+    marginBottom: 12,
+  },
+  flightCardDragging: {
+    opacity: 0.6,
+    borderColor: '#1A4E8C',
+    borderWidth: 2,
   },
   flightGlider: {
     fontSize: 20,
@@ -643,6 +983,12 @@ const styles = StyleSheet.create({
   },
   badgePassenger: {
     backgroundColor: '#FF9800',
+  },
+  badgeDemoRide: {
+    backgroundColor: '#2E7D32',
+  },
+  badgeCurrency: {
+    backgroundColor: '#C62828',
   },
   badgeText: {
     color: '#fff',
@@ -723,121 +1069,6 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
   },
-  emptyState: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 40,
-    alignItems: 'center',
-  },
-  emptyText: {
-    fontSize: 16,
-    color: '#999',
-  },
-
-  badgeDemoRide: {
-    backgroundColor: '#2E7D32',
-  },
-  endOfDayButton: {
-    backgroundColor: '#1A4E8C',
-    borderRadius: 8,
-    padding: 10,
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  endOfDayText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  adjustPanel: {
-    backgroundColor: '#E3F2FD',
-    borderWidth: 1,
-    borderColor: '#1A4E8C',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
-  },
-  adjustTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#1A4E8C',
-    marginBottom: 4,
-  },
-  adjustRecorded: {
-    fontSize: 14,
-    color: '#555',
-    marginBottom: 8,
-  },
-  adjustLabel: {
-    fontSize: 13,
-    color: '#666',
-    marginBottom: 8,
-  },
-  adjustButtons: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginBottom: 8,
-  },
-  adjustButton: {
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    minWidth: 44,
-    alignItems: 'center',
-  },
-  adjustButtonSelected: {
-    backgroundColor: '#1A4E8C',
-    borderColor: '#1A4E8C',
-  },
-  adjustButtonText: {
-    fontSize: 14,
-    color: '#333',
-    fontWeight: '600',
-  },
-  adjustButtonTextSelected: {
-    color: '#fff',
-  },
-  adjustResult: {
-    fontSize: 14,
-    color: '#1A4E8C',
-    fontWeight: '600',
-    marginBottom: 8,
-  },
-  adjustConfirmRow: {
-    flexDirection: 'row',
-    gap: 12,
-    marginTop: 8,
-  },
-  adjustCancelButton: {
-    flex: 1,
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    padding: 12,
-    alignItems: 'center',
-  },
-  adjustCancelText: {
-    color: '#666',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  adjustConfirmButton: {
-    flex: 2,
-    backgroundColor: '#1A4E8C',
-    borderRadius: 8,
-    padding: 12,
-    alignItems: 'center',
-  },
-  adjustConfirmText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: 'bold',
-  },
   reorderRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -866,6 +1097,4 @@ const styles = StyleSheet.create({
     color: '#1A4E8C',
     fontWeight: '600',
   },
-
-
 });

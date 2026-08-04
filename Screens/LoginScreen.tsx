@@ -9,13 +9,14 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
-import { signInWithEmailAndPassword } from 'firebase/auth';
+import { signInWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
 import { auth } from '../firebaseConfig';
 
 export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [sendingReset, setSendingReset] = useState(false);
 
   const handleLogin = async () => {
     if (!email || !password) {
@@ -29,6 +30,22 @@ export default function LoginScreen() {
       Alert.alert('Login Failed', 'Invalid email or password');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    if (!email) {
+      Alert.alert('Email Required', 'Enter your email above first, then tap Forgot Password.');
+      return;
+    }
+    setSendingReset(true);
+    try {
+      await sendPasswordResetEmail(auth, email);
+      Alert.alert('Check Your Email', `A password reset link has been sent to ${email}.`);
+    } catch (error) {
+      Alert.alert('Error', 'Could not send reset email. Check the address and try again.');
+    } finally {
+      setSendingReset(false);
     }
   };
 
@@ -62,6 +79,15 @@ export default function LoginScreen() {
         disabled={loading}>
         <Text style={styles.buttonText}>
           {loading ? 'Signing in...' : 'Sign In'}
+        </Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={styles.forgotButton}
+        onPress={handleForgotPassword}
+        disabled={sendingReset}>
+        <Text style={styles.forgotText}>
+          {sendingReset ? 'Sending...' : 'Forgot password?'}
         </Text>
       </TouchableOpacity>
     </KeyboardAvoidingView>
@@ -109,5 +135,13 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  forgotButton: {
+    marginTop: 16,
+    alignItems: 'center',
+  },
+  forgotText: {
+    color: '#1A4E8C',
+    fontSize: 14,
   },
 });

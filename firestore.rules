@@ -37,6 +37,17 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    // Glider currency clearance requests (Section 15 of the spec). Filed by
+    // a lapsed pilot's own app when blocked from submitting a tow request;
+    // resolved by whoever is working the Line Chief screen. Clearance is
+    // scoped to a single calendar day (grantedForDate) — see lib/currency.ts.
+    match /currencyClearanceRequests/{requestId} {
+      allow read: if isActiveMember();
+      allow create: if isActiveMember() && request.resource.data.pilotId == request.auth.uid;
+      allow update: if isActiveMember();
+      allow delete: if false;
+    }
+
     // Shared singleton: line chief mode toggle + active tow plane/pilot assignment.
     match /globalSettings/{settingId} {
       allow read: if isActiveMember();

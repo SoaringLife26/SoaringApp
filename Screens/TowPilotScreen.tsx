@@ -8,6 +8,8 @@ import {
   ScrollView,
   Alert,
   ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import {
   collection,
@@ -24,9 +26,11 @@ import {
 } from 'firebase/firestore';
 import { db } from '../firebaseConfig';
 import { useMember } from '../context/MemberContext';
+import { useGlobalSettings } from '../context/GlobalSettingsContext';
 
 export default function TowPilotScreen({ navigation }: any) {
   const { member } = useMember();
+  const { lineChiefMode } = useGlobalSettings();
   const [pendingFlights, setPendingFlights] = useState<any[]>([]);
   const [completedTow, setCompletedTow] = useState<any>(null);
   const [releaseAltitude, setReleaseAltitude] = useState('');
@@ -35,7 +39,6 @@ export default function TowPilotScreen({ navigation }: any) {
   const [towPlanes, setTowPlanes] = useState<any[]>([]);
   const [selectedTowPlane, setSelectedTowPlane] = useState<any>(null);
   const [towPlanesLoading, setTowPlanesLoading] = useState(true);
-  const [lineChiefMode, setLineChiefMode] = useState(true);
   const [togglingMode, setTogglingMode] = useState(false);
   const [showRetrieveForm, setShowRetrieveForm] = useState(false);
   const [retrievePilotName, setRetrievePilotName] = useState('');
@@ -118,19 +121,6 @@ export default function TowPilotScreen({ navigation }: any) {
       }
     };
     fetchTowPlanes();
-  }, []);
-
-  // Real-time listener for global settings
-  useEffect(() => {
-    const unsubscribe = onSnapshot(
-      doc(db, 'globalSettings', 'current'),
-      (snapshot) => {
-        if (snapshot.exists()) {
-          setLineChiefMode(snapshot.data().lineChiefMode ?? true);
-        }
-      }
-    );
-    return unsubscribe;
   }, []);
 
   const handleReleaseAltitude = async () => {
@@ -396,6 +386,9 @@ export default function TowPilotScreen({ navigation }: any) {
   }
 
   return (
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      style={{ flex: 1 }}>
     <ScrollView style={styles.container}>
       <TouchableOpacity
         style={styles.backButton}
@@ -600,6 +593,7 @@ export default function TowPilotScreen({ navigation }: any) {
 
       <View style={{ height: 60 }} />
     </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 

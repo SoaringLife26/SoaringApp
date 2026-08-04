@@ -92,6 +92,12 @@ export default function RoleSelectScreen({ navigation }: any) {
         </TouchableOpacity>
       ))}
 
+      <TouchableOpacity
+        style={styles.changePasswordButton}
+        onPress={() => navigation.navigate('ChangePassword')}>
+        <Text style={styles.changePasswordText}>Change Password</Text>
+      </TouchableOpacity>
+
       <TouchableOpacity style={styles.signOutButton} onPress={handleSignOut}>
         <Text style={styles.signOutText}>Sign Out</Text>
       </TouchableOpacity>
@@ -149,8 +155,16 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#1A4E8C',
   },
-  signOutButton: {
+  changePasswordButton: {
     marginTop: 24,
+    padding: 8,
+  },
+  changePasswordText: {
+    color: '#1A4E8C',
+    fontSize: 14,
+  },
+  signOutButton: {
+    marginTop: 8,
     padding: 12,
   },
   signOutText: {

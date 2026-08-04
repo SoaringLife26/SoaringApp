@@ -10,7 +10,6 @@ const fs = require('fs');
 const path = require('path');
 
 // ── CONFIGURATION ─────────────────────────────────────────────────────────────
-const TEMP_PASSWORD = 'TSAFlight2025!';  // All members get this temp password
 const SERVICE_ACCOUNT_PATH = './serviceAccount.json'; // Firebase service account key
 
 // Membership levels that indicate youth/cadet members
@@ -30,6 +29,18 @@ function cleanMemberNumber(raw) {
   if (!raw) return '';
   // Strip slash suffix: "3420/3420a" → "3420"
   return raw.toString().split('/')[0].trim();
+}
+
+// Per-member temporary password — the member's own TSA member number,
+// zero-padded to 6 digits. Firebase Auth rejects passwords under 6
+// characters, and most member numbers (Section 2.9 schema) are 4 digits or
+// fewer, so padding to 4 alone isn't enough — 6 is the shortest padding
+// that always satisfies Firebase regardless of member number length.
+// Member numbers aren't treated as a secret (they're visible on club
+// rosters); the real access boundary is that only imported, active WA
+// members ever get an account at all. See spec Section 2.10.
+function tempPasswordFor(memberNumber) {
+  return memberNumber.toString().padStart(6, '0');
 }
 
 function parseCSV(content) {
@@ -113,7 +124,7 @@ async function importMembers(filePath) {
       try {
         const userRecord = await auth.createUser({
           email,
-          password: TEMP_PASSWORD,
+          password: tempPasswordFor(memberNumber),
           displayName,
         });
         uid = userRecord.uid;
@@ -161,8 +172,10 @@ async function importMembers(filePath) {
   console.log(`⚠️  Skipped:        ${skipped}`);
   console.log(`❌ Errors:          ${errors}`);
   console.log(`─────────────────────────────────────────`);
-  console.log(`\nAll members have been given the temporary password: ${TEMP_PASSWORD}`);
-  console.log('Please inform members to change their password after first login.\n');
+  console.log('\nEach member\'s temporary password is their own TSA member number,');
+  console.log('zero-padded to 6 digits (e.g. member 42 -> 000042).');
+  console.log('Existing accounts are never re-passworded by a re-run of this script.');
+  console.log('Please inform members they can change their password in-app after first login.\n');
 }
 
 // ── RUN ───────────────────────────────────────────────────────────────────────
