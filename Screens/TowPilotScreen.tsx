@@ -65,24 +65,35 @@ export default function TowPilotScreen({ navigation }: any) {
     return unsubscribe;
   }, []);
 
-  // Real-time listener for landed flights needing release altitude
+  // Real-time listener for this tow plane's flight needing release altitude.
+  // Scoped to the plane assigned at "Certify — Cleared for Tow" (towPlaneId),
+  // not just any landed flight system-wide — with two tow planes running,
+  // a tow pilot must only ever see the ticket he was actually assigned.
+  // Fires from wheels-up (status 'airborne') since release happens mid-flight,
+  // well before landing; 'landed' stays included as a safety net in case the
+  // altitude never got logged in the air.
   useEffect(() => {
+    if (!selectedTowPlane?.id) {
+      setCompletedTow(null);
+      return;
+    }
     const q = query(
       collection(db, 'flights'),
-      where('status', '==', 'landed')
+      where('towPlaneId', '==', selectedTowPlane.id),
+      where('status', 'in', ['airborne', 'landed'])
     );
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const landedFlights = snapshot.docs
+      const needsAltitude = snapshot.docs
         .map(d => ({ id: d.id, ...d.data() }))
-        .filter((f: any) => !f.releaseAltitudeFt && !f.patternTowConfirmed);
-      if (landedFlights.length > 0) {
-        setCompletedTow(landedFlights[0]);
-      } else {
-        setCompletedTow(null);
-      }
+        .filter((f: any) =>
+          f.flightCategory !== 'aero_retrieve' &&
+          !f.releaseAltitudeFt &&
+          !f.patternTowConfirmed
+        );
+      setCompletedTow(needsAltitude[0] || null);
     });
     return unsubscribe;
-  }, []);
+  }, [selectedTowPlane?.id]);
 
   // Real-time listener for active aero retrieves
   useEffect(() => {
@@ -135,18 +146,21 @@ export default function TowPilotScreen({ navigation }: any) {
       await runTransaction(db, async (transaction) => {
         const snap = await transaction.get(flightRef);
         const flight = snap.data();
-        // Release altitude is the tow pilot's whole job — recording it never
-        // depends on whether the glider pilot has logged their flight time.
-        // Only club-glider flights need the pilot's own time entry too; once
-        // that's the only other requirement and it's already in, we can
-        // close the flight out. Anything else stays 'landed'.
+        // Release altitude is logged mid-flight now, often well before the
+        // glider lands — never force status to 'landed' here, or a still-
+        // airborne flight would be marked down as landed. Only jump straight
+        // to 'complete' if the glider has already landed AND the pilot side
+        // is also done (club-glider flight time entered, or a private
+        // glider that never needed one) — otherwise leave status exactly
+        // where the landing flow put it.
+        const alreadyLanded = flight?.status === 'landed';
         const pilotSideDone = flight?.gliderOwnership !== 'club' || !!flight?.pilotFlightTime;
         transaction.update(flightRef, {
           releaseAltitudeFt: parseInt(releaseAltitude),
           towPilotUID: member?.uid,
           towPilotName: member?.displayName,
-          status: pilotSideDone ? 'complete' : 'landed',
           updatedAt: serverTimestamp(),
+          ...(alreadyLanded && pilotSideDone ? { status: 'complete' } : {}),
         });
       });
       setCompletedTow(null);
@@ -399,16 +413,6 @@ export default function TowPilotScreen({ navigation }: any) {
       <Text style={styles.title}>Tow Pilot</Text>
       <Text style={styles.pilotName}>{member?.displayName}</Text>
 
-      {/* Persistent tow plane header */}
-      <View style={styles.towPlaneHeader}>
-        <Text style={styles.towPlaneHeaderText}>
-          ✈️ Flying: {selectedTowPlane.displayName || selectedTowPlane.nNumber} — {selectedTowPlane.nNumber}
-        </Text>
-        <TouchableOpacity onPress={() => setSelectedTowPlane(null)}>
-          <Text style={styles.changePlaneText}>Change</Text>
-        </TouchableOpacity>
-      </View>
-
       {/* Mode toggle */}
       <TouchableOpacity
         style={[styles.modeToggle, lineChiefMode ? styles.modeToggleOn : styles.modeToggleOff]}
@@ -422,18 +426,15 @@ export default function TowPilotScreen({ navigation }: any) {
         </Text>
       </TouchableOpacity>
 
-      {/* End of Day and Retrieve buttons */}
-      <TouchableOpacity
-        style={styles.endOfDayButton}
-        onPress={() => navigation.navigate('EndOfDay')}>
-        <Text style={styles.endOfDayText}>📋 End of Day Checklist</Text>
-      </TouchableOpacity>
-
-      <TouchableOpacity
-        style={styles.retrieveButton}
-        onPress={() => setShowRetrieveForm(true)}>
-        <Text style={styles.retrieveButtonText}>🛬 New Aero Retrieve</Text>
-      </TouchableOpacity>
+      {/* Persistent tow plane header */}
+      <View style={styles.towPlaneHeader}>
+        <Text style={styles.towPlaneHeaderText}>
+          ✈️ Flying: {selectedTowPlane.displayName || selectedTowPlane.nNumber} — {selectedTowPlane.nNumber}
+        </Text>
+        <TouchableOpacity onPress={() => setSelectedTowPlane(null)}>
+          <Text style={styles.changePlaneText}>Change</Text>
+        </TouchableOpacity>
+      </View>
 
       {/* Aero Retrieve Form */}
       {showRetrieveForm && (
@@ -590,6 +591,18 @@ export default function TowPilotScreen({ navigation }: any) {
           </View>
         ))
       )}
+
+      <TouchableOpacity
+        style={styles.retrieveButton}
+        onPress={() => setShowRetrieveForm(true)}>
+        <Text style={styles.retrieveButtonText}>🛬 New Aero Retrieve</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={styles.endOfDayButton}
+        onPress={() => navigation.navigate('EndOfDay')}>
+        <Text style={styles.endOfDayText}>📋 End of Day Checklist</Text>
+      </TouchableOpacity>
 
       <View style={{ height: 60 }} />
     </ScrollView>

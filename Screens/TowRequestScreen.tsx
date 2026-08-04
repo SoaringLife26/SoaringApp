@@ -15,7 +15,6 @@ import { db } from '../firebaseConfig';
 import { useMember } from '../context/MemberContext';
 import { useGlobalSettings } from '../context/GlobalSettingsContext';
 import { getDaysSinceLastFlight, isCurrent, hasActiveClearance, fileClearanceRequest } from '../lib/currency';
-import { Picker } from '@react-native-picker/picker';
 
 const TOW_CATEGORIES = [
   { id: 'normal',        label: 'Normal' },
@@ -254,7 +253,7 @@ export default function TowRequestScreen({ navigation }: any) {
             style={[styles.optionButton, gliderPath === 'club' && styles.optionSelected]}
             onPress={() => { setGliderPath('club'); setSelectedGlider(null); }}>
             <Text style={[styles.optionText, gliderPath === 'club' && styles.optionTextSelected]}>
-              Fly a club glider instead
+              Fly a Club Glider
             </Text>
           </TouchableOpacity>
 
@@ -268,25 +267,22 @@ export default function TowRequestScreen({ navigation }: any) {
         </>
       )}
 
-      {/* Club Glider Picker */}
+      {/* Club Glider List */}
       {gliderPath === 'club' && (
-        <View style={styles.pickerContainer}>
-          <Picker
-            selectedValue={selectedGlider?.id || ''}
-            onValueChange={(itemValue) => {
-              const glider = clubGliders.find(g => g.id === itemValue);
-              setSelectedGlider(glider || null);
-            }}
-            style={styles.picker}>
-            <Picker.Item label={glidersLoading ? "Loading..." : "— Select a glider —"} value="" />
-            {clubGliders.map((glider) => (
-              <Picker.Item
-                key={glider.id}
-                label={glider.label}
-                value={glider.id}
-              />
-            ))}
-          </Picker>
+        <View style={styles.gliderList}>
+          {glidersLoading && (
+            <Text style={styles.labelOptional}>Loading gliders...</Text>
+          )}
+          {!glidersLoading && clubGliders.map((glider) => (
+            <TouchableOpacity
+              key={glider.id}
+              style={[styles.optionButton, selectedGlider?.id === glider.id && styles.optionSelected]}
+              onPress={() => setSelectedGlider(glider)}>
+              <Text style={[styles.optionText, selectedGlider?.id === glider.id && styles.optionTextSelected]}>
+                {glider.label}{glider.isTwoSeat ? '  (2-seat)' : ''}
+              </Text>
+            </TouchableOpacity>
+          ))}
         </View>
       )}
 
@@ -517,16 +513,8 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '600',
   },
-  pickerContainer: {
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
+  gliderList: {
     marginBottom: 8,
-    overflow: 'hidden',
-  },
-  picker: {
-    height: 50,
   },
   toggleRow: {
     flexDirection: 'row',

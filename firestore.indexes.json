@@ -8,6 +8,14 @@
         { "fieldPath": "status", "order": "ASCENDING" },
         { "fieldPath": "landingTime", "order": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "flights",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "towPlaneId", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

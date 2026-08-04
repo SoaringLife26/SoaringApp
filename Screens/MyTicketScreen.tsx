@@ -22,11 +22,16 @@ import {
   orderBy,
   limit,
   runTransaction,
+  Timestamp,
 } from 'firebase/firestore';
 import { db } from '../firebaseConfig';
 import { useMember } from '../context/MemberContext';
 
 // A tenth of an hour is 6 minutes — always round up, never down, per club billing rules.
+// Also reused as the landing-time reconciliation tolerance between the
+// pilot's and line chief's independently logged landing times.
+const LANDING_TOLERANCE_MIN = 6;
+
 function computeSystemFlightTime(flight: any): number | null {
   if (!flight.takeoffTime || !flight.landingTime) return null;
   const minutes = (flight.landingTime.toMillis() - flight.takeoffTime.toMillis()) / 60000;
@@ -90,14 +95,89 @@ export default function MyTicketScreen({ navigation }: any) {
           text: 'Confirm Landing',
           onPress: async () => {
             try {
-              await updateDoc(doc(db, 'flights', flight.id), {
-                status: 'landed',
-                landingTime: serverTimestamp(),
-                landingLoggedBy: 'pilot',
-                updatedAt: serverTimestamp(),
+              const flightRef = doc(db, 'flights', flight.id);
+              await runTransaction(db, async (transaction) => {
+                const snap = await transaction.get(flightRef);
+                const current = snap.data();
+                // Release altitude is often logged mid-flight now, before
+                // landing — if the tow side is already done (and the pilot
+                // side too, e.g. a private glider that never needs a flight-
+                // time entry), close the flight out now instead of parking
+                // it at 'landed' with nothing left to do.
+                const towSideDone = !!current?.releaseAltitudeFt || !!current?.patternTowConfirmed;
+                const pilotSideDone = current?.gliderOwnership !== 'club' || !!current?.pilotFlightTime;
+                transaction.update(flightRef, {
+                  status: towSideDone && pilotSideDone ? 'complete' : 'landed',
+                  landingTime: serverTimestamp(),
+                  pilotLandingTime: serverTimestamp(),
+                  landingLoggedBy: 'pilot',
+                  updatedAt: serverTimestamp(),
+                });
               });
             } catch (error) {
               Alert.alert('Error', 'Could not log landing.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleAcceptLanding = async (flight: any) => {
+    try {
+      const flightRef = doc(db, 'flights', flight.id);
+      await runTransaction(db, async (transaction) => {
+        const snap = await transaction.get(flightRef);
+        const current = snap.data();
+        const towSideDone = !!current?.releaseAltitudeFt || !!current?.patternTowConfirmed;
+        const pilotSideDone = current?.gliderOwnership !== 'club' || !!current?.pilotFlightTime;
+        transaction.update(flightRef, {
+          landingConfirmedBy: 'pilot',
+          landingConfirmedAt: serverTimestamp(),
+          status: towSideDone && pilotSideDone ? 'complete' : 'landed',
+          updatedAt: serverTimestamp(),
+        });
+      });
+    } catch (error) {
+      Alert.alert('Error', 'Could not confirm landing.');
+    }
+  };
+
+  const handleDeclineLanding = async (flight: any) => {
+    Alert.alert(
+      'Log Your Own Landing Time',
+      'Record your own landing time now instead?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Log Now',
+          onPress: async () => {
+            try {
+              const pilotTime = new Date();
+              const flightRef = doc(db, 'flights', flight.id);
+              await runTransaction(db, async (transaction) => {
+                const snap = await transaction.get(flightRef);
+                const current = snap.data();
+                const towSideDone = !!current?.releaseAltitudeFt || !!current?.patternTowConfirmed;
+                const pilotSideDone = current?.gliderOwnership !== 'club' || !!current?.pilotFlightTime;
+                // The LC's time stays canonical either way — this just
+                // records the pilot's own number and flags a mismatch
+                // beyond tolerance for the LC to sort out at End of Day.
+                // Never blocks the flight from proceeding.
+                const lcTime: Timestamp | undefined = current?.lineChiefLandingTime || current?.landingTime;
+                const deltaMin = lcTime ? Math.abs(pilotTime.getTime() - lcTime.toMillis()) / 60000 : 0;
+                transaction.update(flightRef, {
+                  pilotLandingTime: Timestamp.fromDate(pilotTime),
+                  landingConfirmedBy: 'pilot',
+                  landingConfirmedAt: serverTimestamp(),
+                  needsReconciliation: deltaMin > LANDING_TOLERANCE_MIN,
+                  reconciliationDeltaMin: deltaMin,
+                  status: towSideDone && pilotSideDone ? 'complete' : 'landed',
+                  updatedAt: serverTimestamp(),
+                });
+              });
+            } catch (error) {
+              Alert.alert('Error', 'Could not log landing time.');
             }
           },
         },
@@ -190,6 +270,14 @@ export default function MyTicketScreen({ navigation }: any) {
     return '#FFFFFF';
   };
 
+  // A club-glider flight the pilot has already logged his own time for is
+  // done from his side — drop it from his view even if the tow pilot hasn't
+  // logged release altitude yet; that's a tow-side concern, not something
+  // he needs to keep watching for.
+  const visibleFlights = activeFlights.filter(
+    (f) => !(f.status === 'landed' && f.gliderOwnership === 'club' && f.pilotFlightTime)
+  );
+
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -207,7 +295,7 @@ export default function MyTicketScreen({ navigation }: any) {
 
       {loading ? (
         <ActivityIndicator size="large" color="#1A4E8C" style={{ marginTop: 40 }} />
-      ) : activeFlights.length === 0 ? (
+      ) : visibleFlights.length === 0 ? (
         <View style={styles.emptyState}>
           <Text style={styles.emptyText}>No active flights</Text>
           <Text style={styles.emptySubtext}>
@@ -220,7 +308,7 @@ export default function MyTicketScreen({ navigation }: any) {
           </TouchableOpacity>
         </View>
       ) : (
-        activeFlights.map((flight) => {
+        visibleFlights.map((flight) => {
           const status = getStatusDisplay(flight.status);
           const cardColor = getCardColor(flight);
           const isClubGlider = flight.gliderOwnership === 'club';
@@ -267,6 +355,27 @@ export default function MyTicketScreen({ navigation }: any) {
                   onPress={() => handleLogLanding(flight)}>
                   <Text style={styles.landingButtonText}>🛬 Log My Landing</Text>
                 </TouchableOpacity>
+              )}
+
+              {flight.status === 'landing_proposed' && flight.landingLoggedBy === 'line_chief' && (
+                <View style={styles.proposedCard}>
+                  <Text style={styles.proposedLabel}>
+                    Line Chief logged your landing at{' '}
+                    {flight.landingTime?.toDate?.().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                  </Text>
+                  <View style={styles.proposedButtons}>
+                    <TouchableOpacity
+                      style={styles.acceptButton}
+                      onPress={() => handleAcceptLanding(flight)}>
+                      <Text style={styles.acceptButtonText}>✓ Accept</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.declineButton}
+                      onPress={() => handleDeclineLanding(flight)}>
+                      <Text style={styles.declineButtonText}>✗ Decline</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
               )}
 
               {needsFlightTime && (
@@ -422,6 +531,50 @@ const styles = StyleSheet.create({
   landingButtonText: {
     color: '#fff',
     fontSize: 16,
+    fontWeight: 'bold',
+  },
+  proposedCard: {
+    marginTop: 16,
+    backgroundColor: '#F3E5F5',
+    borderRadius: 8,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#9C27B0',
+  },
+  proposedLabel: {
+    fontSize: 14,
+    color: '#333',
+    fontWeight: '600',
+    marginBottom: 12,
+  },
+  proposedButtons: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  acceptButton: {
+    flex: 1,
+    backgroundColor: '#2E7D32',
+    padding: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  acceptButtonText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: 'bold',
+  },
+  declineButton: {
+    flex: 1,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#C62828',
+    padding: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  declineButtonText: {
+    color: '#C62828',
+    fontSize: 15,
     fontWeight: 'bold',
   },
   timeEntry: {

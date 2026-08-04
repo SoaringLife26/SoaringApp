@@ -239,6 +239,11 @@ export default function EndOfDayScreen({ navigation }: any) {
                         ⚠️ Still airborne — confirm pilot has landed
                       </Text>
                     )}
+                    {flight.needsReconciliation && (
+                      <Text style={styles.reconciliationFlag}>
+                        ⚠️ Landing time mismatch (~{Math.round(flight.reconciliationDeltaMin)} min) — pilot vs LC
+                      </Text>
+                    )}
                     {missingFlightTime ? (
                       <>
                         <Text style={styles.flightWarning}>
@@ -283,8 +288,15 @@ export default function EndOfDayScreen({ navigation }: any) {
               <Text style={styles.sectionTitle}>✅ Cleared</Text>
               {clearedFlights.map((flight) => (
                 <View key={flight.id} style={styles.clearedCard}>
-                  <Text style={styles.flightLabel}>{getFlightLabel(flight)}</Text>
-                  <Text style={styles.flightType}>{getFlightType(flight)}</Text>
+                  <View>
+                    <Text style={styles.flightLabel}>{getFlightLabel(flight)}</Text>
+                    <Text style={styles.flightType}>{getFlightType(flight)}</Text>
+                    {flight.needsReconciliation && (
+                      <Text style={styles.reconciliationFlag}>
+                        ⚠️ Landing time mismatch (~{Math.round(flight.reconciliationDeltaMin)} min) — pilot vs LC
+                      </Text>
+                    )}
+                  </View>
                   {flight.billedFlightTime && (
                     <Text style={styles.flightTime}>
                       {flight.billedFlightTime} hrs
@@ -492,6 +504,12 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#2E7D32',
     fontWeight: '600',
+  },
+  reconciliationFlag: {
+    fontSize: 12,
+    color: '#E65100',
+    fontWeight: '600',
+    marginTop: 2,
   },
   clearButton: {
     backgroundColor: '#1A4E8C',

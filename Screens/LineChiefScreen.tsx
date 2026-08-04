@@ -23,7 +23,13 @@ import {
   orderBy,
   getDocs,
   writeBatch,
+  runTransaction,
+  Timestamp,
 } from 'firebase/firestore';
+
+// Same billing increment as the rest of the app (a tenth of an hour, 6
+// minutes) — reused here as the landing-time reconciliation tolerance.
+const LANDING_TOLERANCE_MIN = 6;
 
 import { db } from '../firebaseConfig';
 import { useMember } from '../context/MemberContext';
@@ -55,7 +61,8 @@ function getTimeAloft(takeoffMillis: number | null, now: number) {
 
 export default function LineChiefScreen({ navigation }: any) {
   const { member } = useMember();
-  const { lineChiefMode, activeTowPlaneId } = useGlobalSettings();
+  const { lineChiefMode, activeTowPlaneId, activeLineChiefUID, activeLineChiefName } = useGlobalSettings();
+  const [claimingLineChief, setClaimingLineChief] = useState(false);
 
   const [pendingFlights, setPendingFlights] = useState<any[]>([]);
   const [airborneFlights, setAirborneFlights] = useState<any[]>([]);
@@ -107,9 +114,17 @@ export default function LineChiefScreen({ navigation }: any) {
   }, []);
 
   useEffect(() => {
-    const q = query(collection(db, 'flights'), where('status', '==', 'airborne'));
+    // 'landed' is included too — when the pilot logs landing first, status
+    // goes straight to 'landed' (see MyTicketScreen), but the LC still
+    // needs to see it to independently confirm/reconcile. Once the LC has
+    // done that (landingConfirmedBy set), it drops off this list — nothing
+    // left here for the LC to do.
+    const q = query(collection(db, 'flights'), where('status', 'in', ['airborne', 'landing_proposed', 'landed']));
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      setAirborneFlights(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+      const flights = snapshot.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .filter((f: any) => f.status !== 'landed' || !f.landingConfirmedBy);
+      setAirborneFlights(flights);
     });
     return unsubscribe;
   }, []);
@@ -232,6 +247,58 @@ export default function LineChiefScreen({ navigation }: any) {
     }
   };
 
+  const handleClaimLineChief = async () => {
+    setClaimingLineChief(true);
+    try {
+      await updateDoc(doc(db, 'globalSettings', 'current'), {
+        activeLineChiefUID: member?.uid,
+        activeLineChiefName: member?.displayName,
+        activeLineChiefClaimedAt: serverTimestamp(),
+      });
+    } catch (error) {
+      Alert.alert('Error', 'Could not sign on as Line Chief.');
+    } finally {
+      setClaimingLineChief(false);
+    }
+  };
+
+  const handleTakeOverLineChief = () => {
+    Alert.alert(
+      'Take Over as Line Chief',
+      `${activeLineChiefName || 'Another member'} is currently signed on as Line Chief. Take over?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Take Over', style: 'destructive', onPress: handleClaimLineChief },
+      ]
+    );
+  };
+
+  const handleSignOffLineChief = () => {
+    Alert.alert(
+      'Sign Off as Line Chief',
+      'Sign off? Another member will be able to take over the role.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Sign Off',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await updateDoc(doc(db, 'globalSettings', 'current'), {
+                activeLineChiefUID: '',
+                activeLineChiefName: '',
+                activeLineChiefClaimedAt: null,
+              });
+              navigation.goBack();
+            } catch (error) {
+              Alert.alert('Error', 'Could not sign off.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const handleTapAirborneCard = (flightId: string) => {
     if (expandedFlightId === flightId) {
       setExpandedFlightId(null);
@@ -239,6 +306,10 @@ export default function LineChiefScreen({ navigation }: any) {
       setLandingOffset(0);
       return;
     }
+    // Always start from "now", even if the pilot already self-reported a
+    // time — this has to be the LC's own independent observation for the
+    // tolerance check to mean anything. Pre-filling from the pilot's time
+    // would make every confirmation trivially match it (delta always 0).
     setExpandedFlightId(flightId);
     setLandingProposedTime(new Date());
     setLandingOffset(0);
@@ -246,18 +317,65 @@ export default function LineChiefScreen({ navigation }: any) {
 
   const handleConfirmLanding = async (flight: any) => {
     if (!landingProposedTime) return;
+    let mismatchResult: { deltaMin: number; needsReconciliation: boolean } | null = null;
     try {
       const adjustedTime = new Date(landingProposedTime.getTime() + landingOffset * 60000);
-      await updateDoc(doc(db, 'flights', flight.id), {
-        status: 'landed',
-        landingTime: adjustedTime,
-        landingTimeOffsetMin: landingOffset,
-        landingLoggedBy: 'line_chief',
-        updatedAt: serverTimestamp(),
+      const adjustedTimestamp = Timestamp.fromDate(adjustedTime);
+      const flightRef = doc(db, 'flights', flight.id);
+      await runTransaction(db, async (transaction) => {
+        const snap = await transaction.get(flightRef);
+        const current = snap.data();
+        const towSideDone = !!current?.releaseAltitudeFt || !!current?.patternTowConfirmed;
+        const pilotSideDone = current?.gliderOwnership !== 'club' || !!current?.pilotFlightTime;
+
+        if (current?.pilotLandingTime) {
+          // Pilot already logged their own landing — this LC entry is the
+          // independent check, not a fresh proposal. LC's time is treated
+          // as canonical for billing either way; a mismatch beyond
+          // tolerance just gets flagged, never blocks the flight from
+          // proceeding.
+          const deltaMin = Math.abs(adjustedTime.getTime() - current.pilotLandingTime.toMillis()) / 60000;
+          mismatchResult = { deltaMin, needsReconciliation: deltaMin > LANDING_TOLERANCE_MIN };
+          transaction.update(flightRef, {
+            lineChiefLandingTime: adjustedTimestamp,
+            landingTime: adjustedTimestamp,
+            landingTimeOffsetMin: landingOffset,
+            landingConfirmedBy: 'line_chief',
+            landingConfirmedAt: serverTimestamp(),
+            needsReconciliation: deltaMin > LANDING_TOLERANCE_MIN,
+            reconciliationDeltaMin: deltaMin,
+            status: towSideDone && pilotSideDone ? 'complete' : 'landed',
+            updatedAt: serverTimestamp(),
+          });
+        } else {
+          // LC logging first — propose to the pilot for accept/decline
+          // rather than finalizing immediately.
+          transaction.update(flightRef, {
+            lineChiefLandingTime: adjustedTimestamp,
+            landingTime: adjustedTimestamp,
+            landingTimeOffsetMin: landingOffset,
+            landingLoggedBy: 'line_chief',
+            status: 'landing_proposed',
+            updatedAt: serverTimestamp(),
+          });
+        }
       });
       setExpandedFlightId(null);
       setLandingProposedTime(null);
       setLandingOffset(0);
+      // Immediate feedback on the reconciliation result, since it otherwise
+      // only surfaces later on the End of Day screen.
+      if (mismatchResult) {
+        const { deltaMin, needsReconciliation } = mismatchResult as { deltaMin: number; needsReconciliation: boolean };
+        if (needsReconciliation) {
+          Alert.alert(
+            'Landing Time Mismatch',
+            `Your entry is ${Math.round(deltaMin)} min off the pilot's — outside the ${LANDING_TOLERANCE_MIN} min tolerance. Flagged for End of Day review; nothing is blocked.`
+          );
+        } else {
+          Alert.alert('Landing Confirmed', `Matches the pilot's reported time within tolerance (~${Math.round(deltaMin)} min).`);
+        }
+      }
     } catch (error) {
       Alert.alert('Error', 'Could not log landing.');
     }
@@ -310,6 +428,59 @@ export default function LineChiefScreen({ navigation }: any) {
     return badges[towType] || towType;
   };
 
+  // Only one person can hold the Line Chief role at a time. If someone else
+  // already has it, block entry behind a takeover prompt rather than letting
+  // two people act as LC simultaneously with no coordination.
+  if (activeLineChiefUID && activeLineChiefUID !== member?.uid) {
+    return (
+      <View style={styles.container}>
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => navigation.goBack()}>
+          <Text style={styles.backText}>← Back</Text>
+        </TouchableOpacity>
+        <Text style={styles.title}>Line Chief</Text>
+        <View style={styles.gateCard}>
+          <Text style={styles.gateText}>
+            📋 {activeLineChiefName || 'Another member'} is currently signed on as Line Chief
+          </Text>
+          <TouchableOpacity
+            style={styles.gateButton}
+            onPress={handleTakeOverLineChief}
+            disabled={claimingLineChief}>
+            <Text style={styles.gateButtonText}>
+              {claimingLineChief ? 'Taking over...' : 'Take Over as Line Chief'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
+
+  if (!activeLineChiefUID) {
+    return (
+      <View style={styles.container}>
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => navigation.goBack()}>
+          <Text style={styles.backText}>← Back</Text>
+        </TouchableOpacity>
+        <Text style={styles.title}>Line Chief</Text>
+        <View style={styles.gateCard}>
+          <Text style={styles.gateText}>No one is currently signed on as Line Chief.</Text>
+          <TouchableOpacity
+            style={styles.gateButton}
+            onPress={handleClaimLineChief}
+            disabled={claimingLineChief}>
+            <Text style={styles.gateButtonText}>
+              {claimingLineChief ? 'Signing on...' : 'Become Line Chief'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -323,6 +494,10 @@ export default function LineChiefScreen({ navigation }: any) {
       <Text style={styles.title}>Line Chief</Text>
       <Text style={styles.subtitle}>{member?.displayName}</Text>
 
+      <TouchableOpacity onPress={handleSignOffLineChief}>
+        <Text style={styles.signOffText}>Sign Off as Line Chief</Text>
+      </TouchableOpacity>
+
       {!lineChiefMode && (
         <View style={styles.noLCBanner}>
           <Text style={styles.noLCBannerText}>✈️ No Line Chief Mode Active</Text>
@@ -331,12 +506,6 @@ export default function LineChiefScreen({ navigation }: any) {
           </Text>
         </View>
       )}
-
-      <TouchableOpacity
-        style={styles.endOfDayButton}
-        onPress={() => navigation.navigate('EndOfDay')}>
-        <Text style={styles.endOfDayText}>📋 End of Day Checklist</Text>
-      </TouchableOpacity>
 
       {clearanceRequests.length > 0 && (
         <View style={styles.clearanceSection}>
@@ -459,6 +628,9 @@ export default function LineChiefScreen({ navigation }: any) {
                 const expanded = expandedFlightId === item.id;
                 const aloft = getTimeAloft(item.takeoffTime?.toMillis?.() ?? null, now);
 
+                const awaitingPilot = item.status === 'landing_proposed' && item.landingLoggedBy === 'line_chief';
+                const pilotReported = !!item.pilotLandingTime && item.status !== 'landing_proposed';
+
                 if (!expanded) {
                   return (
                     <TouchableOpacity
@@ -466,6 +638,12 @@ export default function LineChiefScreen({ navigation }: any) {
                       onPress={() => handleTapAirborneCard(item.id)}>
                       <Text style={styles.airborneGlider}>{item.displayShorthand}</Text>
                       <Text style={styles.airborneTimeAloft}>{aloft}</Text>
+                      {awaitingPilot && (
+                        <Text style={styles.landingRaceBadge}>⏳ Awaiting pilot confirmation</Text>
+                      )}
+                      {pilotReported && (
+                        <Text style={styles.landingRaceBadge}>🛬 Pilot reported landed — confirm</Text>
+                      )}
                     </TouchableOpacity>
                   );
                 }
@@ -474,6 +652,12 @@ export default function LineChiefScreen({ navigation }: any) {
                   <View style={[styles.airborneCardExpanded, { backgroundColor: getCardColor(item) }]}>
                     <Text style={styles.airborneGlider}>{item.displayShorthand}</Text>
                     <Text style={styles.airborneTimeAloft}>Aloft {aloft}</Text>
+                    {awaitingPilot && (
+                      <Text style={styles.landingRaceBadge}>⏳ Awaiting pilot confirmation</Text>
+                    )}
+                    {pilotReported && (
+                      <Text style={styles.landingRaceBadge}>🛬 Pilot reported landed — confirm</Text>
+                    )}
                     {landingProposedTime && (
                       <>
                         <Text style={styles.adjustRecorded}>
@@ -518,6 +702,12 @@ export default function LineChiefScreen({ navigation }: any) {
           )}
         </View>
       </View>
+
+      <TouchableOpacity
+        style={styles.endOfDayButton}
+        onPress={() => navigation.navigate('EndOfDay')}>
+        <Text style={styles.endOfDayText}>📋 End of Day Checklist</Text>
+      </TouchableOpacity>
     </KeyboardAvoidingView>
   );
 }
@@ -682,6 +872,35 @@ const styles = StyleSheet.create({
     color: '#666',
     marginBottom: 16,
   },
+  signOffText: {
+    fontSize: 14,
+    color: '#C62828',
+    marginBottom: 16,
+  },
+  gateCard: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 24,
+    marginTop: 16,
+    alignItems: 'center',
+  },
+  gateText: {
+    fontSize: 16,
+    color: '#333',
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  gateButton: {
+    backgroundColor: '#1A4E8C',
+    paddingHorizontal: 24,
+    paddingVertical: 14,
+    borderRadius: 8,
+  },
+  gateButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
   noLCBanner: {
     backgroundColor: '#FFF3E0',
     borderWidth: 1,
@@ -843,6 +1062,12 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#555',
     fontWeight: '600',
+  },
+  landingRaceBadge: {
+    fontSize: 12,
+    color: '#9C27B0',
+    fontWeight: '600',
+    marginTop: 4,
   },
   airborneCardExpanded: {
     borderWidth: 1,

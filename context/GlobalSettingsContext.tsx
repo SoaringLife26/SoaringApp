@@ -5,17 +5,23 @@ import { db } from '../firebaseConfig';
 type GlobalSettings = {
   lineChiefMode: boolean;
   activeTowPlaneId: string;
+  activeLineChiefUID: string;
+  activeLineChiefName: string;
 };
 
 const GlobalSettingsContext = createContext<GlobalSettings>({
   lineChiefMode: true,
   activeTowPlaneId: '',
+  activeLineChiefUID: '',
+  activeLineChiefName: '',
 });
 
 export function GlobalSettingsProvider({ children }: { children: React.ReactNode }) {
   const [settings, setSettings] = useState<GlobalSettings>({
     lineChiefMode: true,
     activeTowPlaneId: '',
+    activeLineChiefUID: '',
+    activeLineChiefName: '',
   });
 
   useEffect(() => {
@@ -25,6 +31,8 @@ export function GlobalSettingsProvider({ children }: { children: React.ReactNode
         setSettings({
           lineChiefMode: data.lineChiefMode ?? true,
           activeTowPlaneId: data.activeTowPlaneId || '',
+          activeLineChiefUID: data.activeLineChiefUID || '',
+          activeLineChiefName: data.activeLineChiefName || '',
         });
       }
     });
