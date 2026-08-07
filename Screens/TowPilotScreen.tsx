@@ -123,7 +123,6 @@ export default function TowPilotScreen({ navigation }: any) {
           id: d.id,
           ...d.data(),
         }));
-        console.log('Tow planes found:', planes.length);
         setTowPlanes(planes);
       } catch (error) {
         console.error('Error fetching tow planes:', error);

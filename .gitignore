@@ -42,3 +42,7 @@ yarn-error.*
 
 # Firebase-admin service account
 serviceAccount.json
+
+# Member export CSVs (real PII, never committed)
+*Members*.csv
+*Contacts*.csv

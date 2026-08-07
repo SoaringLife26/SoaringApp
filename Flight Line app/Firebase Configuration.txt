@@ -1,0 +1,17 @@
+// Import the functions you need from the SDKs you need
+import { initializeApp } from "firebase/app";
+// TODO: Add SDKs for Firebase products that you want to use
+// https://firebase.google.com/docs/web/setup#available-libraries
+
+// Your web app's Firebase configuration
+const firebaseConfig = {
+  apiKey: "AIzaSyBa4V2gpILeKkVUNnNGkRPCPLviNS_W50E",
+  authDomain: "soaringapp-dev.firebaseapp.com",
+  projectId: "soaringapp-dev",
+  storageBucket: "soaringapp-dev.firebasestorage.app",
+  messagingSenderId: "266964281704",
+  appId: "1:266964281704:web:59aa1e77758b5950ed0edd"
+};
+
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);

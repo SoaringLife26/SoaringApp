@@ -273,32 +273,6 @@ export default function LineChiefScreen({ navigation }: any) {
     );
   };
 
-  const handleSignOffLineChief = () => {
-    Alert.alert(
-      'Sign Off as Line Chief',
-      'Sign off? Another member will be able to take over the role.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Sign Off',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await updateDoc(doc(db, 'globalSettings', 'current'), {
-                activeLineChiefUID: '',
-                activeLineChiefName: '',
-                activeLineChiefClaimedAt: null,
-              });
-              navigation.goBack();
-            } catch (error) {
-              Alert.alert('Error', 'Could not sign off.');
-            }
-          },
-        },
-      ]
-    );
-  };
-
   const handleTapAirborneCard = (flightId: string) => {
     if (expandedFlightId === flightId) {
       setExpandedFlightId(null);
@@ -493,10 +467,6 @@ export default function LineChiefScreen({ navigation }: any) {
 
       <Text style={styles.title}>Line Chief</Text>
       <Text style={styles.subtitle}>{member?.displayName}</Text>
-
-      <TouchableOpacity onPress={handleSignOffLineChief}>
-        <Text style={styles.signOffText}>Sign Off as Line Chief</Text>
-      </TouchableOpacity>
 
       {!lineChiefMode && (
         <View style={styles.noLCBanner}>
@@ -852,30 +822,25 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f0f4f8',
     paddingHorizontal: 24,
-    paddingTop: 60,
+    paddingTop: 44,
   },
   backButton: {
-    marginBottom: 8,
+    marginBottom: 4,
   },
   backText: {
-    fontSize: 16,
+    fontSize: 14,
     color: '#1A4E8C',
   },
   title: {
-    fontSize: 28,
+    fontSize: 20,
     fontWeight: 'bold',
     color: '#1A4E8C',
-    marginBottom: 4,
+    marginBottom: 2,
   },
   subtitle: {
-    fontSize: 16,
+    fontSize: 13,
     color: '#666',
-    marginBottom: 16,
-  },
-  signOffText: {
-    fontSize: 14,
-    color: '#C62828',
-    marginBottom: 16,
+    marginBottom: 8,
   },
   gateCard: {
     backgroundColor: '#fff',
